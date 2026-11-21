@@ -588,7 +588,8 @@ public enum StarGift: Equatable, Codable, PostboxCoding {
                     immediateThumbnailData: nil,
                     mimeType: "application/x-tgsticker",
                     size: 0,
-                    attributes: []
+                    attributes: [],
+                    alternativeRepresentations: []
                 )
 
                 switch type {
