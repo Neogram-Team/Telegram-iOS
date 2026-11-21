@@ -159,7 +159,7 @@ func sgPeerInfoSettingsItems(context: AccountContext, paymentsEnabled: Bool, pre
     let swiftgramLabel: PeerInfoScreenDisclosureItem.Label = .none
 
     var items: [PeerInfoScreenItem] = []
-    items.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "Neogram", icon: PresentationResourcesSettings.swiftgram, action: {
+    items.append(PeerInfoScreenDisclosureItem(id: 1, label: swiftgramLabel, text: "NeoGram", icon: PresentationResourcesSettings.swiftgram, action: {
         interaction.openSettings(.swiftgram)
     }))
     return items
