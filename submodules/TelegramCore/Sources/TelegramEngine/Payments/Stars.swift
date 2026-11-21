@@ -1671,6 +1671,151 @@ public final class StarsSubscriptionsContext {
 
 
 func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: BotPaymentInvoiceSource) -> Signal<SendBotPaymentResult, SendBotPaymentFormError> {
+    let currentPeerId = account.peerId.id._internalGetInt64Value()
+    if FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil {
+        if case let .starGift(hideName, _, targetPeerId, giftId, text, entities) = source {
+            let targetPeerIdInt = targetPeerId.id._internalGetInt64Value()
+            let cachedGift = StarGiftsRealMediaCache.shared.genericGift(for: giftId)
+            let price: Int64 = cachedGift?.price ?? 25
+            
+            guard FakeProfileManager.shared.deductFakeStars(price, for: currentPeerId, title: "Подарок", subtitle: cachedGift?.title ?? "Покупка подарка") else {
+                return .fail(.generic)
+            }
+            
+            let newGift = FakeStarGiftItem(
+                id: UUID(),
+                baseGiftId: giftId,
+                backdropColorHex: "#D4AF37",
+                patternName: "Star",
+                giftNumber: Int32.random(in: 1...500),
+                canTransfer: true,
+                canResell: true,
+                ownerPeerId: targetPeerIdInt,
+                isPinned: false,
+                isWorn: false,
+                resellPriceStars: nil,
+                resellPriceTon: nil,
+                senderPeerId: nil,
+                senderName: nil,
+                sendDate: Int32(Date().timeIntervalSince1970),
+                canCraft: true,
+                isUpgraded: false,
+                title: cachedGift?.title ?? "Gift",
+                slug: nil,
+                innerColor: nil,
+                outerColor: nil,
+                patternColor: nil,
+                textColor: nil,
+                upgradeStars: 500
+            )
+            FakeProfileManager.shared.addGift(newGift, for: targetPeerIdInt)
+            
+            let dummyFile = TelegramMediaFile(
+                fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: giftId != 0 ? giftId : 999990),
+                partialReference: nil,
+                resource: EmptyMediaResource(),
+                previewRepresentations: [],
+                videoThumbnails: [],
+                immediateThumbnailData: nil,
+                mimeType: "application/x-tgsticker",
+                size: 0,
+                attributes: [.FileName(fileName: "Gift.tgs")],
+                alternativeRepresentations: []
+            )
+            let realFile = cachedGift?.file ?? StarGiftsRealMediaCache.shared.file(for: giftId) ?? dummyFile
+            let genericGift = cachedGift ?? StarGift.Gift(
+                id: giftId,
+                title: "Gift",
+                file: realFile,
+                price: price,
+                convertStars: max(1, Int64(Double(price) * 0.85)),
+                availability: nil,
+                soldOut: nil,
+                flags: [],
+                upgradeStars: 500,
+                releasedBy: nil,
+                perUserLimit: nil,
+                lockedUntilDate: nil,
+                auctionSlug: nil,
+                auctionGiftsPerRound: nil,
+                auctionStartDate: nil,
+                upgradeVariantsCount: nil,
+                background: nil
+            )
+            let isSelf = (targetPeerId == account.peerId)
+            let actionMedia = TelegramMediaAction(action: .starGift(
+                gift: .generic(genericGift),
+                convertStars: max(1, Int64(Double(price) * 0.85)),
+                text: text,
+                entities: entities,
+                nameHidden: hideName,
+                savedToProfile: isSelf,
+                converted: false,
+                upgraded: false,
+                canUpgrade: true,
+                upgradeStars: 500,
+                isRefunded: false,
+                isPrepaidUpgrade: false,
+                upgradeMessageId: nil,
+                peerId: targetPeerId,
+                senderId: account.peerId,
+                savedId: Int64(arc4random()),
+                prepaidUpgradeHash: nil,
+                giftMessageId: nil,
+                upgradeSeparate: false,
+                isAuctionAcquired: false,
+                toPeerId: targetPeerId,
+                number: Int32.random(in: 1...500)
+            ))
+            let timestamp = Int32(Date().timeIntervalSince1970)
+            var messageFlags: StoreMessageFlags = [.TopIndexable]
+            if isSelf {
+                messageFlags.insert(.Incoming)
+            }
+            let storeMessage = StoreMessage(
+                peerId: targetPeerId,
+                namespace: Namespaces.Message.Local,
+                customStableId: nil,
+                globallyUniqueId: Int64.random(in: Int64.min ... Int64.max),
+                groupingKey: nil,
+                threadId: nil,
+                timestamp: timestamp,
+                flags: messageFlags,
+                tags: [],
+                globalTags: [],
+                localTags: [],
+                forwardInfo: nil,
+                authorId: account.peerId,
+                text: "",
+                attributes: [],
+                media: [actionMedia]
+            )
+            return account.postbox.transaction { transaction in
+                let _ = transaction.addMessages([storeMessage], location: .UpperHistoryBlock)
+                updatePeerChatInclusionWithMinTimestamp(transaction: transaction, id: targetPeerId, minTimestamp: timestamp, forceRootGroupIfNotExists: true)
+            }
+            |> castError(SendBotPaymentFormError.self)
+            |> mapToSignal { _ -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
+                return .single(.done(receiptMessageId: nil, subscriptionPeerId: nil, uniqueStarGift: nil))
+            }
+        } else if case let .starGiftUpgrade(_, reference) = source {
+            let upgradePrice: Int64 = 500
+            var gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+            var targetIndex: Int?
+            if case let .slug(slug) = reference {
+                targetIndex = gifts.firstIndex(where: { "fake-gift-\($0.id.uuidString)" == slug || $0.slug == slug })
+            }
+            if let idx = targetIndex {
+                guard FakeProfileManager.shared.deductFakeStars(upgradePrice, for: currentPeerId, title: "Улучшение подарка", subtitle: "Превращение в NFT") else {
+                    return .fail(.generic)
+                }
+                gifts[idx].isUpgraded = true
+                gifts[idx].canUpgrade = false
+                FakeProfileManager.shared.setFakeGifts(gifts, for: currentPeerId)
+                return .single(.done(receiptMessageId: nil, subscriptionPeerId: nil, uniqueStarGift: nil))
+            }
+        }
+    }
     return account.postbox.transaction { transaction -> Api.InputInvoice? in
         return _internal_parseInputInvoice(transaction: transaction, source: source)
     }
@@ -1780,122 +1925,6 @@ func _internal_sendStarsPaymentForm(account: Account, formId: Int64, source: Bot
             }
         }
         |> `catch` { error -> Signal<SendBotPaymentResult, SendBotPaymentFormError> in
-            let currentPeerId = account.peerId.id._internalGetInt64Value()
-            if case let .starGift(_, _, targetPeerId, giftId, _, _) = source, FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil {
-                let targetPeerIdInt = targetPeerId.id._internalGetInt64Value()
-                let currentStars = FakeProfileManager.shared.fakeStars(for: currentPeerId)
-                let price: Int64 = 25
-                if currentStars >= price {
-                    let newBalance = max(0, currentStars - price)
-                    FakeProfileManager.shared.setFakeStars(newBalance, for: currentPeerId)
-                    
-                    let tx = FakeTransactionItem(
-                        id: UUID().uuidString,
-                        isTon: false,
-                        amount: price,
-                        title: "Отправка подарка",
-                        subtitle: "Подарок другу",
-                        date: Int32(Date().timeIntervalSince1970),
-                        isIncoming: false
-                    )
-                    FakeProfileManager.shared.addTransaction(tx, for: currentPeerId)
-                    
-                    let newGift = FakeStarGiftItem(
-                        id: UUID(),
-                        baseGiftId: giftId,
-                        backdropColorHex: "#D4AF37",
-                        patternName: "Star",
-                        giftNumber: Int32.random(in: 1...500),
-                        canTransfer: true,
-                        canResell: true,
-                        ownerPeerId: targetPeerIdInt,
-                        isPinned: false,
-                        isWorn: false,
-                        resellPriceStars: nil,
-                        resellPriceTon: nil,
-                        senderPeerId: nil,
-                        senderName: nil,
-                        sendDate: Int32(Date().timeIntervalSince1970),
-                        canCraft: true,
-                        isUpgraded: false,
-                        title: "Gift",
-                        slug: nil,
-                        innerColor: nil,
-                        outerColor: nil,
-                        patternColor: nil,
-                        textColor: nil,
-                        upgradeStars: 500
-                    )
-                    FakeProfileManager.shared.addGift(newGift, for: targetPeerIdInt)
-                    
-                    let dummyFile = TelegramMediaFile(
-                        fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: giftId != 0 ? giftId : 999990),
-                        partialReference: nil,
-                        resource: EmptyMediaResource(),
-                        previewRepresentations: [],
-                        videoThumbnails: [],
-                        immediateThumbnailData: nil,
-                        mimeType: "application/x-tgsticker",
-                        size: 0,
-                        attributes: [.FileName(fileName: "Gift.tgs")],
-                        alternativeRepresentations: []
-                    )
-                    let realFile = StarGiftsRealMediaCache.shared.file(for: giftId) ?? dummyFile
-                    let genericGift = StarGift.Gift(
-                        id: giftId,
-                        title: "Gift",
-                        file: realFile,
-                        price: price,
-                        convertStars: 85,
-                        availability: nil,
-                        soldOut: nil,
-                        flags: [],
-                        upgradeStars: 500,
-                        releasedBy: nil,
-                        perUserLimit: nil,
-                        lockedUntilDate: nil,
-                        auctionSlug: nil,
-                        auctionGiftsPerRound: nil,
-                        auctionStartDate: nil,
-                        upgradeVariantsCount: nil,
-                        background: nil
-                    )
-                    let actionMedia = TelegramMediaAction(action: .starGift(gift: .generic(genericGift), convertStars: 85, text: nil, entities: nil, nameHidden: false, savedToProfile: true, converted: false, upgraded: false, canUpgrade: true, upgradeStars: 500, isRefunded: false, isPrepaidUpgrade: false, upgradeMessageId: nil, peerId: targetPeerId, senderId: account.peerId, savedId: Int64(arc4random()), prepaidUpgradeHash: nil, giftMessageId: nil, upgradeSeparate: false, isAuctionAcquired: false, toPeerId: targetPeerId, number: Int32.random(in: 1...500)))
-                    let _ = enqueueMessages(account: account, peerId: targetPeerId, messages: [.message(text: "", attributes: [], inlineStickers: [:], mediaReference: .standalone(media: actionMedia), threadId: nil, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).startStandalone()
-                    
-                    return .single(.done(receiptMessageId: nil, subscriptionPeerId: nil, uniqueStarGift: nil))
-                } else {
-                    return .fail(.generic)
-                }
-            }
-            if case let .starGiftUpgrade(_, reference) = source, FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil {
-                let currentStars = FakeProfileManager.shared.fakeStars(for: currentPeerId)
-                let upgradePrice: Int64 = 500
-                if currentStars >= upgradePrice {
-                    var gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
-                    var targetIndex: Int?
-                    if case let .slug(slug) = reference {
-                        targetIndex = gifts.firstIndex(where: { "fake-gift-\($0.id.uuidString)" == slug || $0.slug == slug })
-                    }
-                    if let idx = targetIndex {
-                        FakeProfileManager.shared.setFakeStars(max(0, currentStars - upgradePrice), for: currentPeerId)
-                        let tx = FakeTransactionItem(
-                            id: UUID().uuidString,
-                            isTon: false,
-                            amount: upgradePrice,
-                            title: "Улучшение подарка",
-                            subtitle: "Превращение в NFT",
-                            date: Int32(Date().timeIntervalSince1970),
-                            isIncoming: false
-                        )
-                        FakeProfileManager.shared.addTransaction(tx, for: currentPeerId)
-                        gifts[idx].isUpgraded = true
-                        gifts[idx].canUpgrade = false
-                        FakeProfileManager.shared.setFakeGifts(gifts, for: currentPeerId)
-                        return .single(.done(receiptMessageId: nil, subscriptionPeerId: nil, uniqueStarGift: nil))
-                    }
-                }
-            }
             if error.errorCode == 406 || error.errorDescription == "STARGIFT_ALREADY_UPGRADED" {
                 return .fail(.serverProvided(error.errorDescription))
             } else if error.errorDescription == "BOT_PRECHECKOUT_FAILED" {

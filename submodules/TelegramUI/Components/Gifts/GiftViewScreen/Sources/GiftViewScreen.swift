@@ -6902,6 +6902,8 @@ public class GiftViewScreen: ViewControllerComponentContainer {
                             reference = .message(messageId: EngineMessage.Id(peerId: peerId, namespace: Namespaces.Message.Cloud, id: giftMessageId))
                         } else if let peerId, let savedId {
                             reference = .peer(peerId: peerId, id: savedId)
+                        } else if message.id.namespace == Namespaces.Message.Local {
+                            reference = .peer(peerId: peerId ?? message.id.peerId, id: savedId ?? 0)
                         } else {
                             reference = .message(messageId: message.id)
                         }
@@ -6912,11 +6914,15 @@ public class GiftViewScreen: ViewControllerComponentContainer {
                         var reference: StarGiftReference
                         if let peerId, let savedId {
                             reference = .peer(peerId: peerId, id: savedId)
+                        } else if message.id.namespace == Namespaces.Message.Local, case let .unique(uniqueGift) = gift {
+                            reference = .slug(slug: uniqueGift.slug)
                         } else {
                             reference = .message(messageId: message.id)
                         }
                         var incoming = false
-                        if isUpgrade {
+                        if message.id.namespace == Namespaces.Message.Local {
+                            incoming = message.flags.contains(.Incoming)
+                        } else if isUpgrade {
                             if message.author?.id != message.id.peerId {
                                 incoming = true
                             }
