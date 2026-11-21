@@ -229,6 +229,7 @@ public final class FakeProfileManager: @unchecked Sendable {
         static let fakeUsernames = "FakeProfile_fakeUsernames"
         static let fakeGifts = "FakeProfile_fakeGifts"
         static let fakeTransactions = "FakeProfile_fakeTransactions"
+        static let fakeGiftsOrder = "FakeProfile_fakeGiftsOrder"
         static let currentAccountPeerId = "FakeProfile_currentAccountPeerId"
     }
     
@@ -1013,5 +1014,20 @@ public final class FakeProfileManager: @unchecked Sendable {
         if let data = try? JSONEncoder().encode(all) {
             self.defaults.set(data, forKey: key)
         }
+    }
+    
+    // Пользовательский порядок подарков в профиле
+    public func giftsOrder(for peerId: Int64? = nil) -> [String] {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.fakeGiftsOrder, peerId: peerId)
+        return self.defaults.stringArray(forKey: key) ?? []
+    }
+    
+    public func setGiftsOrder(_ order: [String], for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.fakeGiftsOrder, peerId: peerId)
+        self.defaults.set(order, forKey: key)
     }
 }

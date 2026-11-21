@@ -1572,8 +1572,11 @@ func _internal_deleteStarGift(account: Account, reference: StarGiftReference) ->
 }
 
 func _internal_updateStarGiftAddedToProfile(account: Account, reference: StarGiftReference, added: Bool) -> Signal<Never, NoError> {
-    if case let .slug(slug) = reference, slug.hasPrefix("fake-") {
-        return .complete()
+    if case let .slug(slug) = reference {
+        let lower = slug.lowercased()
+        if lower.hasPrefix("fake-") || FakeProfileManager.shared.fakeGifts(for: account.peerId.toInt64()).contains(where: { ($0.slug ?? "fake-gift-\($0.id.uuidString)").lowercased() == lower }) {
+            return .complete()
+        }
     }
     var flags: Int32 = 0
     if !added {
@@ -1596,11 +1599,18 @@ func _internal_updateStarGiftAddedToProfile(account: Account, reference: StarGif
 }
 
 func _internal_updateStarGiftsPinnedToTop(account: Account, peerId: EnginePeer.Id, references: [StarGiftReference]) -> Signal<Never, NoError> {
+    let fakeSlugs = Set(FakeProfileManager.shared.fakeGifts(for: peerId.toInt64()).map { ($0.slug ?? "fake-gift-\($0.id.uuidString)").lowercased() })
     let nonFakeReferences = references.filter {
-        if case let .slug(slug) = $0, slug.hasPrefix("fake-") {
-            return false
+        switch $0 {
+        case let .slug(slug):
+            let lower = slug.lowercased()
+            if lower.hasPrefix("fake-") || fakeSlugs.contains(lower) {
+                return false
+            }
+            return true
+        default:
+            return true
         }
-        return true
     }
     return account.postbox.transaction { transaction in
         let peer = transaction.getPeer(peerId)
@@ -2708,6 +2718,72 @@ private func generateFakeSavedStarGifts(targetPeerId: EnginePeer.Id) -> [Profile
     }
 }
 
+public extension StarGiftReference {
+    var persistentKey: String {
+        switch self {
+        case let .message(messageId):
+            return "m_\(messageId.peerId.toInt64())_\(messageId.id)"
+        case let .peer(peerId, id):
+            return "p_\(peerId.toInt64())_\(id)"
+        case let .slug(slug):
+            return "s_\(slug.lowercased())"
+        }
+    }
+}
+
+public extension ProfileGiftsContext.State.StarGift {
+    var persistentKey: String {
+        if let reference = self.reference {
+            return reference.persistentKey
+        }
+        switch self.gift {
+        case let .unique(unique):
+            return "s_\(unique.slug.lowercased())"
+        case let .generic(generic):
+            return "g_\(generic.id)_\(self.date)"
+        }
+    }
+}
+
+private func sortStarGiftsByOrder(_ gifts: [ProfileGiftsContext.State.StarGift], order: [String]) -> [ProfileGiftsContext.State.StarGift] {
+    if order.isEmpty || gifts.isEmpty {
+        return gifts
+    }
+    var rankMap: [String: Int] = [:]
+    for (index, key) in order.enumerated() {
+        if rankMap[key] == nil {
+            rankMap[key] = index
+        }
+    }
+    
+    var newGifts: [ProfileGiftsContext.State.StarGift] = []
+    var orderedGifts: [(rank: Int, gift: ProfileGiftsContext.State.StarGift)] = []
+    
+    for gift in gifts {
+        let key = gift.persistentKey
+        var rank = rankMap[key]
+        if rank == nil {
+            if case let .unique(unique) = gift.gift {
+                let slugLower = unique.slug.lowercased()
+                rank = rankMap["s_\(slugLower)"] ?? rankMap["u_\(slugLower)"] ?? rankMap[slugLower]
+            }
+        }
+        if let rank {
+            orderedGifts.append((rank, gift))
+        } else {
+            newGifts.append(gift)
+        }
+    }
+    
+    orderedGifts.sort { lhs, rhs in
+        lhs.rank < rhs.rank
+    }
+    
+    let pinnedOrdered = orderedGifts.filter { $0.gift.pinnedToTop }.map { $0.gift }
+    let unpinnedOrdered = orderedGifts.filter { !$0.gift.pinnedToTop }.map { $0.gift }
+    return pinnedOrdered + newGifts + unpinnedOrdered
+}
+
 private final class ProfileGiftsContextImpl {
     private let queue: Queue
     private let account: Account
@@ -3587,6 +3663,12 @@ private final class ProfileGiftsContextImpl {
         let effectiveCount = (useMainData ? self.count : self.filteredCount).map { $0 + extraCount } ?? (extraCount > 0 ? extraCount : nil)
         let effectiveDataState = useMainData ? self.dataState : self.filteredDataState
         
+        let savedOrder = FakeProfileManager.shared.giftsOrder(for: self.peerId.toInt64())
+        if self.sorting == .date && !savedOrder.isEmpty {
+            allGifts = sortStarGiftsByOrder(allGifts, order: savedOrder)
+            effectiveGifts = sortStarGiftsByOrder(effectiveGifts, order: savedOrder)
+        }
+        
         let state = ProfileGiftsContext.State(
             filter: self.filter,
             sorting: self.sorting,
@@ -3598,6 +3680,12 @@ private final class ProfileGiftsContextImpl {
         )
         self._state = state
         self.stateValue.set(.single(state))
+    }
+    
+    public func reorderAllGifts(reorderedGifts: [ProfileGiftsContext.State.StarGift]) {
+        let orderKeys = reorderedGifts.map { $0.persistentKey }
+        FakeProfileManager.shared.setGiftsOrder(orderKeys, for: self.peerId.toInt64())
+        self.pushState()
     }
 }
 
@@ -4019,6 +4107,12 @@ public final class ProfileGiftsContext {
     public func updatePinnedToTopStarGifts(references: [StarGiftReference]) {
         self.impl.with { impl in
             impl.updatePinnedToTopStarGifts(references: references)
+        }
+    }
+    
+    public func reorderAllGifts(reorderedGifts: [ProfileGiftsContext.State.StarGift]) {
+        self.impl.with { impl in
+            impl.reorderAllGifts(reorderedGifts: reorderedGifts)
         }
     }
     

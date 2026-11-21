@@ -299,8 +299,13 @@ final class GiftsListView: UIView {
         
     func item(at point: CGPoint) -> (AnyHashable, ComponentView<Empty>)? {
         for (id, visibleItem) in self.starsItems {
-            if let view = visibleItem.1.view, view.frame.contains(point), let reference = visibleItem.0, self.isCollection || self.pinnedReferences.contains(reference) {
-                return (id, visibleItem.1)
+            if let view = visibleItem.1.view, view.frame.contains(point) {
+                if self.isCollection || self.peerId == self.context.account.peerId {
+                    return (id, visibleItem.1)
+                }
+                if let reference = visibleItem.0, self.pinnedReferences.contains(reference) {
+                    return (id, visibleItem.1)
+                }
             }
         }
         return nil
@@ -341,6 +346,10 @@ final class GiftsListView: UIView {
                     }
                     let _ = self.giftsCollections?.reorderGifts(id: collectionId, gifts: orderedReferences).start()
                 } else {
+                    if self.peerId == self.context.account.peerId {
+                        self.profileGifts.reorderAllGifts(reorderedGifts: starsProducts)
+                    }
+                    
                     var pinnedReferences: [StarGiftReference] = []
                     for gift in starsProducts.prefix(self.maxPinnedCount) {
                         if gift.pinnedToTop, let reference = gift.reference {
@@ -350,10 +359,8 @@ final class GiftsListView: UIView {
                     self.profileGifts.updatePinnedToTopStarGifts(references: pinnedReferences)
                 }
                 
-                Queue.mainQueue().after(1.0) {
-                    self.reorderedReferences = nil
-                    self.reorderedPinnedReferences = nil
-                }
+                self.reorderedReferences = nil
+                self.reorderedPinnedReferences = nil
             }
             
             self.updateScrolling(transition: animated ? .spring(duration: 0.4) : .immediate)
@@ -408,31 +415,31 @@ final class GiftsListView: UIView {
     
     private func reorderIfPossible(reference: StarGiftReference, toIndex: Int) {
         if let items = self.starsProducts {
-            var toIndex = toIndex
-            
-            let maxPinnedIndex: Int?
-            if self.isCollection {
-                maxPinnedIndex = items.count - 1
-            } else {
-                maxPinnedIndex = items.lastIndex(where: { $0.pinnedToTop })
-            }
-            if let maxPinnedIndex {
-                toIndex = min(toIndex, maxPinnedIndex)
-            } else {
-                return
-            }
-            
             var ids = items.compactMap { item -> StarGiftReference? in
                 return item.reference
             }
+            guard !ids.isEmpty else {
+                return
+            }
+            
+            let maxIndex: Int
+            if self.isCollection || self.peerId == self.context.account.peerId {
+                maxIndex = ids.count - 1
+            } else {
+                let lastPinned = items.lastIndex(where: { $0.pinnedToTop }) ?? 0
+                maxIndex = min(lastPinned, ids.count - 1)
+            }
+            
+            let targetIndex = max(0, min(toIndex, maxIndex))
             
             if let fromIndex = ids.firstIndex(of: reference) {
-                if fromIndex < toIndex {
-                    ids.insert(reference, at: toIndex + 1)
+                if fromIndex < targetIndex {
+                    let insertIndex = min(targetIndex + 1, ids.count)
+                    ids.insert(reference, at: insertIndex)
                     ids.remove(at: fromIndex)
-                } else if fromIndex > toIndex {
+                } else if fromIndex > targetIndex {
                     ids.remove(at: fromIndex)
-                    ids.insert(reference, at: toIndex)
+                    ids.insert(reference, at: targetIndex)
                 }
             }
             if self.reorderedReferences != ids {
@@ -801,7 +808,7 @@ final class GiftsListView: UIView {
                         itemView.layer.allowsGroupOpacity = true
                     }
                     
-                    if self.isReordering && (product.pinnedToTop || self.isCollection) {
+                    if self.isReordering && (product.pinnedToTop || self.isCollection || self.peerId == self.context.account.peerId) {
                         if itemView.layer.animation(forKey: "shaking_position") == nil {
                             itemView.layer.addReorderingShaking()
                         }
