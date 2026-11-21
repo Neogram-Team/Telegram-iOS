@@ -1705,6 +1705,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
             }
             
             return _internal_getUniqueStarGift(account: account, slug: slug)
+            |> mapError { _ -> BuyStarGiftError in return .generic }
             |> mapToSignal { uniqueGift -> Signal<Never, BuyStarGiftError> in
                 saveBoughtGift(uniqueGift)
                 return .complete()
