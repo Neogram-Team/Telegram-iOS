@@ -159,6 +159,24 @@ final class GiftsListView: UIView {
             let presentationData = self.context.sharedContext.currentPresentationData.with { $0 }
             self.statusPromise.set(.single(PeerInfoStatusData(text: presentationData.strings.SharedMedia_GiftCount(state.count ?? 0), isActivity: true, key: .gifts)))
             
+            let sanitizeGift: (ProfileGiftsContext.State.StarGift) -> Bool = { product in
+                switch product.gift {
+                case let .generic(gift):
+                    if gift.id == 0 && gift.title.isEmpty { return false }
+                    if gift.file.resource is EmptyMediaResource { return false }
+                    return true
+                case let .unique(gift):
+                    if gift.flags.contains(.isBurned) || (gift.id == 0 && gift.title.isEmpty) { return false }
+                    let hasValidMedia = gift.attributes.contains(where: {
+                        if case let .model(_, file, _, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                        if case let .pattern(_, file, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                        return false
+                    })
+                    if !hasValidMedia && gift.giftId == 0 { return false }
+                    return true
+                }
+            }
+            
             if self.isReordering {
                 var stateItems: [ProfileGiftsContext.State.StarGift] = state.gifts
                 if let reorderedReferences {
@@ -187,10 +205,10 @@ final class GiftsListView: UIView {
                     }
                     stateItems = fixedStateItems
                 }
-                self.starsProducts = stateItems
-                self.pinnedReferences = Array(stateItems.filter { $0.pinnedToTop }.compactMap { $0.reference })
+                self.starsProducts = stateItems.filter(sanitizeGift)
+                self.pinnedReferences = Array(self.starsProducts?.filter { $0.pinnedToTop }.compactMap { $0.reference } ?? [])
             } else {
-                self.starsProducts = state.filteredGifts
+                self.starsProducts = state.filteredGifts.filter(sanitizeGift)
                 self.pinnedReferences = Array(state.gifts.filter { $0.pinnedToTop }.compactMap { $0.reference })
             }
             
@@ -590,7 +608,11 @@ final class GiftsListView: UIView {
                         ribbonText = "#\(gift.number)"
                         for attribute in gift.attributes {
                             if case let .backdrop(_, _, innerColor, outerColor, _, _, _) = attribute {
-                                ribbonColor = .custom(outerColor, innerColor)
+                                if outerColor != 0 || innerColor != 0 {
+                                    ribbonColor = .custom(outerColor, innerColor)
+                                } else {
+                                    ribbonColor = .purple
+                                }
                                 break
                             }
                         }

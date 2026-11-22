@@ -1215,6 +1215,10 @@ public enum StarGift: Equatable, Codable, PostboxCoding {
             let decoder = PostboxDecoder(buffer: MemoryBuffer(data: data))
             return decoder.decodeObjectForKey("_", decoder: { StarGift.UniqueGift(decoder: $0) }) as? StarGift.UniqueGift
         }
+        
+        public var isCraftable: Bool {
+            return isStarGiftCraftable(gift: self)
+        }
     }
     
     public enum DecodingError: Error {
@@ -1443,6 +1447,57 @@ extension StarGift {
             ))
         }
     }
+}
+
+public func isStarGiftCraftable(gift: StarGift.UniqueGift, canCraftAt: Int32? = nil) -> Bool {
+    if gift.flags.contains(.isBurned) {
+        return false
+    }
+    let isAlreadyCrafted = gift.attributes.contains(where: {
+        if case let .model(_, _, _, crafted) = $0 { return crafted }
+        return false
+    })
+    if isAlreadyCrafted {
+        return false
+    }
+    
+    let title = gift.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let slug = gift.slug.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    
+    let nonCraftableTitles: [String] = [
+        "plush pepe", "lol pop", "resistance dog", "doge", "heart",
+        "signet ring", "diamond ring", "perfume bottle", "swiss watch",
+        "kissed frog", "heroic helmet", "sharp tongue", "ice cream",
+        "nail polish", "diamond", "champagne", "party popper",
+        "magic 8-ball", "eternal rose", "loot box", "spy agaric",
+        "gingerbread house", "b-day candle", "skull flower",
+        "astronaut helmet", "mad pumpkin", "trapped heart", "witch hat",
+        "top hat", "santa sleigh", "tiki torch", "red cap", "tiki mana",
+        "bear", "vampire lips", "kiss", "mask", "myth mask"
+    ]
+    for nonCraftable in nonCraftableTitles {
+        if title == nonCraftable || title.hasPrefix(nonCraftable) || slug.hasPrefix(nonCraftable.replacingOccurrences(of: " ", with: "-")) {
+            return false
+        }
+    }
+    
+    let craftableKeywords: [String] = [
+        "desk calendar", "jingle bells", "santa hat", "gingerbread cookie",
+        "snow globe", "christmas tree", "new year tree", "magic potion",
+        "duffel bag", "spy watch", "party sparkler", "winter mitten",
+        "holiday drink", "vintage cigar"
+    ]
+    for craftable in craftableKeywords {
+        if title.contains(craftable) || slug.contains(craftable.replacingOccurrences(of: " ", with: "-")) {
+            return true
+        }
+    }
+    
+    if let chance = gift.craftChancePermille, chance > 0, let canCraftAt, canCraftAt >= 0 {
+        return true
+    }
+    
+    return false
 }
 
 func _internal_cachedStarGifts(postbox: Postbox) -> Signal<StarGiftsList?, NoError> {
@@ -1767,25 +1822,41 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
     let currentPeerId = account.peerId.id._internalGetInt64Value()
     if let price, price.amount.value > 0 {
         let isTon = price.currency == .ton
-        let hasFakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil
-        let hasFakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil
-        let hasFakeBalance = isTon ? hasFakeTon : hasFakeStars
+        let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
+        let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
+        let hasFakeTon = fakeTon != nil
+        let hasFakeStars = fakeStars != nil
+        let hasAnyFakeBalance = hasFakeTon || hasFakeStars
         
-        if hasFakeBalance {
+        if hasAnyFakeBalance {
             let targetPeerIdInt = peerId.id._internalGetInt64Value()
             let existing = FakeProfileManager.shared.fakeGifts(for: targetPeerIdInt)
             guard !existing.contains(where: { $0.slug?.lowercased() == slug.lowercased() }) else {
                 return .complete()
             }
             
+            var deducted = false
             if isTon {
-                guard FakeProfileManager.shared.deductFakeTon(nanos: price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
-                    return .fail(.generic)
+                if hasFakeTon {
+                    deducted = FakeProfileManager.shared.deductFakeTon(nanos: price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
+                }
+                if !deducted && hasFakeStars {
+                    let tonDouble = Double(price.amount.value) / 1_000_000_000.0
+                    let starsEquiv = max(1, Int64((tonDouble * 65.0).rounded()))
+                    deducted = FakeProfileManager.shared.deductFakeStars(starsEquiv, for: currentPeerId, title: "Покупка подарка (TON)", subtitle: slug)
                 }
             } else {
-                guard FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
-                    return .fail(.generic)
+                if hasFakeStars {
+                    deducted = FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
                 }
+                if !deducted && hasFakeTon {
+                    let tonNanosEquiv = max(1, Int64((Double(price.amount.value) / 65.0 * 1_000_000_000.0).rounded()))
+                    deducted = FakeProfileManager.shared.deductFakeTon(nanos: tonNanosEquiv, for: currentPeerId, title: "Покупка подарка (Stars)", subtitle: slug)
+                }
+            }
+            
+            guard deducted else {
+                return .fail(.serverProvided("Недостаточно средств на балансе для покупки."))
             }
             
             let saveBoughtGift: (StarGift.UniqueGift) -> Signal<Never, BuyStarGiftError> = { uniqueGift in
@@ -1830,7 +1901,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: !isAlreadyCrafted,
+                    canCraft: !isAlreadyCrafted && isStarGiftCraftable(gift: boughtUniqueGift),
                     isUpgraded: true,
                     canUpgrade: false,
                     title: uniqueGift.title,
@@ -1889,7 +1960,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: true,
+                    canCraft: false,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: fallbackTitle.isEmpty ? slug : fallbackTitle,
@@ -2508,7 +2579,7 @@ public final class StarGiftsRealMediaCache: @unchecked Sendable {
     public func file(for giftId: Int64) -> TelegramMediaFile? {
         self.lock.lock()
         defer { self.lock.unlock() }
-        return self.mediaFiles[giftId] ?? self.defaultMediaFile
+        return self.mediaFiles[giftId]
     }
 }
 
@@ -2633,7 +2704,8 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
                 return false
             })
         }()
-        let effectiveCraftChance: Int32? = isAlreadyCrafted ? nil : (deserializedGift.craftChancePermille ?? 250)
+        let isCraftable = !isAlreadyCrafted && isStarGiftCraftable(gift: deserializedGift)
+        let effectiveCraftChance: Int32? = isCraftable ? (deserializedGift.craftChancePermille ?? 250) : nil
         let uniqueGift = deserializedGift
             .withAttributes(cleanAttributes)
             .withOwner(.peerId(targetPeerId))
@@ -2664,7 +2736,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
             dropOriginalDetailsStars: nil,
             number: uniqueGift.number,
             isRefunded: false,
-            canCraftAt: isAlreadyCrafted ? nil : 0
+            canCraftAt: isCraftable ? 0 : nil
         )
     }
     
@@ -2732,8 +2804,10 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         peerColor: nil,
         hostPeerId: nil,
         minOfferStars: 100,
-        craftChancePermille: crafted ? nil : 250
+        craftChancePermille: (crafted || !isStarGiftCraftable(gift: uniqueGift)) ? nil : 250
     )
+    
+    let isUniqueCraftable = !crafted && isStarGiftCraftable(gift: uniqueGift)
     
     return ProfileGiftsContext.State.StarGift(
         gift: .unique(uniqueGift),
@@ -2758,7 +2832,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         dropOriginalDetailsStars: nil,
         number: item.giftNumber,
         isRefunded: false,
-        canCraftAt: crafted ? nil : 0
+        canCraftAt: isUniqueCraftable ? 0 : nil
     )
 }
 
@@ -3723,6 +3797,37 @@ private final class ProfileGiftsContextImpl {
             effectiveGifts = sortStarGiftsByOrder(effectiveGifts, order: savedOrder)
         }
         
+        let isGiftValid: (ProfileGiftsContext.State.StarGift) -> Bool = { gift in
+            switch gift.gift {
+            case let .unique(uniqueGift):
+                if uniqueGift.flags.contains(.isBurned) {
+                    return false
+                }
+                if uniqueGift.id == 0 && uniqueGift.title.isEmpty {
+                    return false
+                }
+                let hasValidMedia = uniqueGift.attributes.contains(where: {
+                    if case let .model(_, file, _, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                    if case let .pattern(_, file, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                    return false
+                })
+                if !hasValidMedia && uniqueGift.giftId == 0 {
+                    return false
+                }
+                return true
+            case let .generic(genericGift):
+                if genericGift.id == 0 && genericGift.title.isEmpty {
+                    return false
+                }
+                if genericGift.file.resource is EmptyMediaResource {
+                    return false
+                }
+                return true
+            }
+        }
+        allGifts = allGifts.filter(isGiftValid)
+        effectiveGifts = effectiveGifts.filter(isGiftValid)
+        
         let state = ProfileGiftsContext.State(
             filter: self.filter,
             sorting: self.sorting,
@@ -4496,11 +4601,12 @@ private final class CraftGiftsContextImpl {
             guard case let .unique(ug) = gift.gift else {
                 return nil
             }
-            let isAlreadyCrafted = ug.attributes.contains(where: {
-                if case let .model(_, _, _, crafted) = $0 { return crafted }
-                return false
-            })
-            guard !isAlreadyCrafted else { return nil }
+            guard !ug.flags.contains(.isBurned) && !(ug.id == 0 && ug.title.isEmpty) else {
+                return nil
+            }
+            guard isStarGiftCraftable(gift: ug, canCraftAt: gift.canCraftAt) else {
+                return nil
+            }
             guard seenIds.insert(ug.id).inserted else { return nil }
             return gift.withCanCraftAt(0)
         }
@@ -4735,19 +4841,36 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     }
                 }
                 
+                let validFileFromIngredients: TelegramMediaFile? = {
+                    for attr in ingredientAttributes {
+                        if case let .model(_, f, _, _) = attr, !(f.resource is EmptyMediaResource) {
+                            return f
+                        }
+                    }
+                    for attr in ingredientAttributes {
+                        if case let .pattern(_, f, _) = attr, !(f.resource is EmptyMediaResource) {
+                            return f
+                        }
+                    }
+                    return nil
+                }()
+                
                 let chosenModelAttr: StarGift.UniqueGift.Attribute = {
-                    let craftedModels = models.filter { $0.crafted }
+                    let craftedModels = models.filter { $0.crafted && !($0.file.resource is EmptyMediaResource) }
                     if let selected = craftedModels.randomElement() {
                         return .model(name: selected.name, file: selected.file, rarity: selected.rarity, crafted: true)
                     }
-                    let topModels = models.filter { $0.rarity == .legendary || $0.rarity == .epic }
+                    let topModels = models.filter { ($0.rarity == .legendary || $0.rarity == .epic) && !($0.file.resource is EmptyMediaResource) }
                     if let selected = topModels.randomElement() {
                         return .model(name: selected.name, file: selected.file, rarity: selected.rarity, crafted: true)
                     }
-                    if let selected = models.randomElement() {
+                    if let selected = models.first(where: { !($0.file.resource is EmptyMediaResource) }) {
                         return .model(name: selected.name, file: selected.file, rarity: .legendary, crafted: true)
                     }
-                    let fallbackMediaFile = TelegramMediaFile(
+                    if let fallback = validFileFromIngredients ?? StarGiftsRealMediaCache.shared.file(for: baseGiftId) {
+                        return .model(name: "Crafted \(collectionTitle)", file: fallback, rarity: .legendary, crafted: true)
+                    }
+                    let fallbackMediaFile = StarGiftsRealMediaCache.shared.file(for: 0) ?? TelegramMediaFile(
                         fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: baseGiftId != 0 ? baseGiftId : 999990),
                         partialReference: nil,
                         resource: EmptyMediaResource(),
@@ -4759,8 +4882,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                         attributes: [.FileName(fileName: "model.tgs")],
                         alternativeRepresentations: []
                     )
-                    let realFile = StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? fallbackMediaFile
-                    return .model(name: "Crafted \(collectionTitle)", file: realFile, rarity: .legendary, crafted: true)
+                    return .model(name: "Crafted \(collectionTitle)", file: fallbackMediaFile, rarity: .legendary, crafted: true)
                 }()
                 
                 let chosenBackdropAttr: StarGift.UniqueGift.Attribute = {
@@ -4783,16 +4905,19 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 
                 let chosenPatternAttr: StarGift.UniqueGift.Attribute = {
                     let ingredientPatterns = ingredientAttributes.compactMap { attr -> StarGift.UniqueGift.Attribute? in
-                        if case .pattern = attr { return attr }
+                        if case let .pattern(_, f, _) = attr, !(f.resource is EmptyMediaResource) { return attr }
                         return nil
                     }
                     if !ingredientPatterns.isEmpty && Int.random(in: 1...100) <= 70, let selected = ingredientPatterns.randomElement() {
                         return selected
                     }
-                    if let selected = patterns.randomElement() {
+                    if let selected = patterns.first(where: { !($0.file.resource is EmptyMediaResource) }) {
                         return .pattern(name: selected.name, file: selected.file, rarity: selected.rarity)
                     }
-                    let fallbackMediaFile = TelegramMediaFile(
+                    if case let .model(_, f, _, _) = chosenModelAttr {
+                        return .pattern(name: "Crafted Pattern", file: f, rarity: .legendary)
+                    }
+                    let fallbackMediaFile = StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? StarGiftsRealMediaCache.shared.file(for: 0) ?? TelegramMediaFile(
                         fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: baseGiftId != 0 ? baseGiftId : 999990),
                         partialReference: nil,
                         resource: EmptyMediaResource(),
@@ -4804,15 +4929,8 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                         attributes: [.FileName(fileName: "pattern.tgs")],
                         alternativeRepresentations: []
                     )
-                    let realFile = StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? fallbackMediaFile
-                    return .pattern(name: "Crafted Pattern", file: realFile, rarity: .legendary)
+                    return .pattern(name: "Crafted Pattern", file: fallbackMediaFile, rarity: .legendary)
                 }()
-                
-                let finalAttributes: [StarGift.UniqueGift.Attribute] = [
-                    chosenModelAttr,
-                    chosenPatternAttr,
-                    chosenBackdropAttr
-                ]
                 
                 let existingNumbers = Set(remainingFakeGifts.compactMap { $0.giftNumber })
                 var newNumber: Int32 = Int32.random(in: 1...500)
@@ -4832,6 +4950,21 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 raw |= UInt64(bytes.6) << 8
                 raw |= UInt64(bytes.7)
                 let newDeterministicId: Int64 = Int64(raw & 0x7FFF_FFFF_FFFF_FFFF)
+                
+                if case let .model(_, f, _, _) = chosenModelAttr {
+                    StarGiftsRealMediaCache.shared.register(file: f, for: newDeterministicId)
+                    StarGiftsRealMediaCache.shared.register(file: f, for: baseGiftId)
+                }
+                if case let .pattern(_, f, _) = chosenPatternAttr {
+                    StarGiftsRealMediaCache.shared.register(file: f, for: newDeterministicId)
+                    StarGiftsRealMediaCache.shared.register(file: f, for: baseGiftId)
+                }
+                
+                let finalAttributes: [StarGift.UniqueGift.Attribute] = [
+                    chosenModelAttr,
+                    chosenPatternAttr,
+                    chosenBackdropAttr
+                ]
                 
                 let totalIssued: Int32 = ingredientUniqueGifts.first?.availability.total ?? 1000
                 let newUniqueGift = StarGift.UniqueGift(
@@ -4916,78 +5049,31 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 
                 StarGiftsRealMediaCache.shared.stageUniqueGift(newUniqueGift)
                 
-                return account.postbox.transaction { transaction -> ProfileGiftsContext.State.StarGift in
-                    let mediaAction = TelegramMediaAction(action: .starGiftUnique(
-                        gift: .unique(newUniqueGift),
-                        isUpgrade: false,
-                        isTransferred: false,
-                        savedToProfile: true,
-                        canExportDate: nil,
-                        transferStars: 25,
-                        isRefunded: false,
-                        isPrepaidUpgrade: false,
-                        peerId: account.peerId,
-                        senderId: nil,
-                        savedId: newDeterministicId,
-                        resaleAmount: nil,
-                        canTransferDate: 0,
-                        canResaleDate: 0,
-                        dropOriginalDetailsStars: nil,
-                        assigned: false,
-                        fromOffer: false,
-                        canCraftAt: nil,
-                        isCrafted: true,
-                        text: nil,
-                        entities: nil,
-                        nameHidden: true
-                    ))
-                    let message = StoreMessage(
-                        peerId: account.peerId,
-                        namespace: Namespaces.Message.Local,
-                        customStableId: nil,
-                        globallyUniqueId: nil,
-                        groupingKey: nil,
-                        threadId: nil,
-                        timestamp: Int32(Date().timeIntervalSince1970),
-                        flags: [.Incoming],
-                        tags: [],
-                        globalTags: [],
-                        localTags: [],
-                        forwardInfo: nil,
-                        authorId: nil,
-                        text: "",
-                        attributes: [],
-                        media: [mediaAction]
-                    )
-                    let _ = transaction.addMessages([message], location: .UpperHistoryBlock)
-                    
-                    return ProfileGiftsContext.State.StarGift(
-                        gift: .unique(newUniqueGift),
-                        reference: .slug(slug: newSlug),
-                        fromPeer: nil,
-                        date: Int32(Date().timeIntervalSince1970),
-                        text: nil,
-                        entities: nil,
-                        nameHidden: true,
-                        savedToProfile: true,
-                        pinnedToTop: false,
-                        convertStars: nil,
-                        canUpgrade: false,
-                        canExportDate: nil,
-                        upgradeStars: nil,
-                        transferStars: 25,
-                        canTransferDate: 0,
-                        canResaleDate: 0,
-                        collectionIds: nil,
-                        prepaidUpgradeHash: nil,
-                        upgradeSeparate: false,
-                        dropOriginalDetailsStars: nil,
-                        number: newNumber,
-                        isRefunded: false,
-                        canCraftAt: nil
-                    )
-                }
-                |> castError(CraftStarGiftError.self)
+                return .single(ProfileGiftsContext.State.StarGift(
+                    gift: .unique(newUniqueGift),
+                    reference: .slug(slug: newSlug),
+                    fromPeer: nil,
+                    date: Int32(Date().timeIntervalSince1970),
+                    text: nil,
+                    entities: nil,
+                    nameHidden: true,
+                    savedToProfile: true,
+                    pinnedToTop: false,
+                    convertStars: nil,
+                    canUpgrade: false,
+                    canExportDate: nil,
+                    upgradeStars: nil,
+                    transferStars: 25,
+                    canTransferDate: 0,
+                    canResaleDate: 0,
+                    collectionIds: nil,
+                    prepaidUpgradeHash: nil,
+                    upgradeSeparate: false,
+                    dropOriginalDetailsStars: nil,
+                    number: newNumber,
+                    isRefunded: false,
+                    canCraftAt: nil
+                ))
             }
         }
     }

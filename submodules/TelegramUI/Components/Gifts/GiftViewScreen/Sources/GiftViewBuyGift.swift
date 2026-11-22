@@ -59,16 +59,16 @@ public func buyStarGiftImpl(
         let isTon = finalPrice.currency == .ton
         let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
         let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
-        let hasFakeBalanceForCurrency = isTon ? (fakeTon != nil) : (fakeStars != nil)
+        let hasAnyFakeBalance = (fakeTon != nil) || (fakeStars != nil)
 
         let proceed: () -> Void = {
             updateProgress(true)
-            if hasFakeBalanceForCurrency {
+            if hasAnyFakeBalance {
                 StarGiftsRealMediaCache.shared.stageUniqueGift(uniqueGift)
             }
             
             let buyGiftImpl: ((String, EnginePeer.Id, CurrencyAmount?, Bool, String?, [MessageTextEntity]?) -> Signal<Never, BuyStarGiftError>)
-            if let buyGift {
+            if !hasAnyFakeBalance, let buyGift {
                 buyGiftImpl = { slug, peerId, price, hideName, text, entities in
                     return buyGift(slug, peerId, price, hideName, text, entities)
                 }
@@ -171,95 +171,8 @@ public func buyStarGiftImpl(
             })
         }
         
-        if hasFakeBalanceForCurrency {
-            if !isTon {
-                let currentStars = FakeProfileManager.shared.fakeStars(for: currentPeerId)
-                if currentStars < finalPrice.amount.value {
-                    let _ = (starsTopUpOptions
-                     |> filter { $0 != nil }
-                     |> take(1)
-                     |> deliverOnMainQueue).startStandalone(next: { options in
-                        guard let controller = getController(), let starsContext = context.starsContext else {
-                            return
-                        }
-                        let purchaseController = context.sharedContext.makeStarsPurchaseScreen(
-                            context: context,
-                            starsContext: starsContext,
-                            options: options ?? [],
-                            purpose: .buyStarGift(requiredStars: finalPrice.amount.value),
-                            targetPeerId: nil,
-                            customTheme: nil,
-                            completion: { stars in
-                                guard let starsContext = context.starsContext else {
-                                    return
-                                }
-                                updateProgress(true)
-                                
-                                if hasFakeBalanceForCurrency {
-                                    let current = FakeProfileManager.shared.fakeStars(for: currentPeerId)
-                                    FakeProfileManager.shared.setFakeStars(current + stars, for: currentPeerId)
-                                }
-                                starsContext.add(balance: StarsAmount(value: stars, nanos: 0))
-                                let _ = (starsContext.onUpdate
-                                |> take(1)
-                                |> deliverOnMainQueue).start(next: {
-                                    Queue.mainQueue().after(0.1, {
-                                        guard let starsContext = context.starsContext, let starsState = starsContext.currentState else {
-                                            return
-                                        }
-                                        if starsState.balance < finalPrice.amount {
-                                            updateProgress(false)
-                                            
-                                            buyStarGiftImpl(
-                                                context: context,
-                                                recipientPeerId: recipientPeerId,
-                                                uniqueGift: uniqueGift,
-                                                showAttributes: showAttributes,
-                                                acceptedPrice: acceptedPrice,
-                                                skipConfirmation: true,
-                                                message: message,
-                                                starsTopUpOptions: starsTopUpOptions,
-                                                buyGift: buyGift,
-                                                getController: getController,
-                                                updateProgress: updateProgress,
-                                                updateIsBalanceVisible: updateIsBalanceVisible,
-                                                completion: completion
-                                            )
-                                        } else {
-                                            proceed()
-                                        }
-                                    });
-                                })
-                            }
-                        )
-                        controller.push(purchaseController)
-                    })
-                } else {
-                    proceed()
-                }
-            } else {
-                let currentTonNanos = FakeProfileManager.shared.fakeTonNanos(for: currentPeerId) ?? 0
-                if currentTonNanos < finalPrice.amount.value {
-                    guard let controller = getController() else {
-                        return
-                    }
-                    let needed = finalPrice.amount - StarsAmount(value: currentTonNanos, nanos: 0)
-                    var fragmentUrl = "https://fragment.com/ads/topup"
-                    if let data = context.currentAppConfiguration.with({ $0 }).data, let value = data["ton_topup_url"] as? String {
-                        fragmentUrl = value
-                    }
-                    controller.push(BalanceNeededScreen(
-                        context: context,
-                        amount: needed,
-                        buttonAction: {
-                            context.sharedContext.applicationBindings.openUrl(fragmentUrl)
-                        }
-                    ))
-                    beforeCompletion()
-                } else {
-                    proceed()
-                }
-            }
+        if hasAnyFakeBalance {
+            proceed()
         } else if finalPrice.currency == .stars, let starsContext = context.starsContext, let starsState = context.starsContext?.currentState, starsState.balance < finalPrice.amount {
             let _ = (starsTopUpOptions
              |> filter { $0 != nil }
@@ -340,7 +253,7 @@ public func buyStarGiftImpl(
     }
     
     if skipConfirmation {
-        let defaultCurrency = acceptedPrice?.currency ?? uniqueGift.resellAmounts?.first?.currency ?? .stars
+        let defaultCurrency = acceptedPrice?.currency ?? uniqueGift.resellAmounts?.first?.currency ?? (uniqueGift.resellForTonOnly ? .ton : .stars)
         action(defaultCurrency, message ?? GiftMessageScreen.Result(hideName: true, text: nil, entities: nil), {})
     } else {
         let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: recipientPeerId))

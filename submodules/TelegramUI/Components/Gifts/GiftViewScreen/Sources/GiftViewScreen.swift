@@ -1733,11 +1733,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                 return false
             }()
             guard isOwnGift else { return }
-            let isAlreadyCrafted = gift.attributes.contains(where: {
-                if case let .model(_, _, _, crafted) = $0 { return crafted }
-                return false
-            })
-            guard !isAlreadyCrafted else { return }
+            guard isStarGiftCraftable(gift: gift, canCraftAt: arguments.canCraftDate) else { return }
             
             controller.dismissAllTooltips()
             
@@ -2216,11 +2212,8 @@ private final class GiftViewSheetContent: CombinedComponent {
                     }
                     return false
                 }()
-                let isAlreadyCrafted = gift.attributes.contains(where: {
-                    if case let .model(_, _, _, crafted) = $0 { return crafted }
-                    return false
-                })
-                if isOwnGift && !isAlreadyCrafted {
+                let isCraftable = isStarGiftCraftable(gift: gift, canCraftAt: arguments.canCraftDate)
+                if isOwnGift && isCraftable {
                     items.append(.action(ContextMenuActionItem(text: presentationData.strings.Gift_View_Context_Craft, icon: { theme in
                         return generateTintedImage(image: UIImage(bundleImageName: "Premium/Craft/Craft"), color: theme.contextMenu.primaryColor)
                     }, action: { [weak self] c, _ in
@@ -6176,7 +6169,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                         isEnabled: true,
                         displaysProgress: state.inProgress,
                         action: { [weak state] in
-                            state?.commitBuy(acceptedPrice: resellAmount)
+                            state?.commitBuy(acceptedPrice: resellAmount, skipConfirmation: false)
                         })
             } else {
                 buttonComponent = ButtonComponent(
@@ -6287,12 +6280,9 @@ private final class GiftViewSheetContent: CombinedComponent {
                     (giftScreen?.profileGiftsContext?.peerId == component.context.account.peerId) ||
                     giftScreen?.togglePinnedToTop != nil
                 )
-                let isAlreadyCrafted = uniqueGift.attributes.contains(where: {
-                    if case let .model(_, _, _, crafted) = $0 { return crafted }
-                    return false
-                })
+                let isCraftable = isStarGiftCraftable(gift: uniqueGift, canCraftAt: component.subject.arguments?.canCraftDate)
                 
-                if isFromMyProfile && !isAlreadyCrafted {
+                if isFromMyProfile && isCraftable {
                     rightControlItems.append(GlassControlGroupComponent.Item(
                         id: AnyHashable("craft"),
                         content: .icon("Premium/Craft"),
@@ -7058,12 +7048,10 @@ public class GiftViewScreen: ViewControllerComponentContainer {
                     guard case let .unique(uniqueGift) = gift.gift else {
                         return nil
                     }
-                    let isAlreadyCrafted = uniqueGift.attributes.contains(where: {
-                        if case let .model(_, _, _, crafted) = $0 { return crafted }
-                        return false
-                    })
-                    guard !isAlreadyCrafted else { return nil }
-                    return 0
+                    guard isStarGiftCraftable(gift: uniqueGift, canCraftAt: gift.canCraftAt) else {
+                        return nil
+                    }
+                    return gift.canCraftAt ?? 0
                 }()
                 return (peerId, fromPeerId, fromPeerName, fromPeerCompactName, messageId, gift.reference, false, gift.gift, gift.date, gift.convertStars, gift.text, gift.entities, gift.nameHidden, gift.savedToProfile, gift.pinnedToTop, false, false, false, gift.canUpgrade, gift.upgradeStars, gift.transferStars, resellAmounts, gift.canExportDate, nil, gift.canTransferDate, gift.canResaleDate, gift.prepaidUpgradeHash, gift.upgradeSeparate, gift.dropOriginalDetailsStars, nil, number, canCraftDate)
             case .soldOutGift:
