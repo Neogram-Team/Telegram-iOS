@@ -2736,7 +2736,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
                 } else {
                     fixedAttributes.append(attr)
                 }
-            case let .backdrop(name, id, inC, outC, pC, tC, rarity):
+            case let .backdrop(name, id, inC, outC, _, tC, rarity):
                 if inC == 0 && outC == 0 {
                     fixedAttributes.append(.backdrop(name: name, id: id, innerColor: Int32(bitPattern: 0xFF9333EA), outerColor: Int32(bitPattern: 0xFF4C1D95), patternColor: Int32(bitPattern: 0xFFC084FC), textColor: tC, rarity: rarity))
                 } else {
