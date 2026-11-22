@@ -2597,7 +2597,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
             let _ = (self.context.engine.payments.getUniqueStarGift(slug: slug)
             |> deliverOnMainQueue).start(next: { [weak self] uniqueGift in
                 guard let self else { return }
-                let controller = GiftViewScreen(context: self.context, subject: .uniqueGift(uniqueGift, recipientPeerId: self.peerId))
+                let controller = GiftViewScreen(context: self.context, subject: .uniqueGift(uniqueGift, self.peerId))
                 self.controller?.push(controller)
             }, error: { [weak self] _ in
                 if !slug.hasPrefix("fake-gift-") {
