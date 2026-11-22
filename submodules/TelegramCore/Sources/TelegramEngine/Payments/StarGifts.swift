@@ -1450,7 +1450,6 @@ extension StarGift {
 }
 
 public func isStarGiftCraftable(gift: StarGift.UniqueGift, canCraftAt: Int32? = nil) -> Bool {
-    _ = canCraftAt
     if gift.flags.contains(.isBurned) {
         return false
     }
@@ -1462,19 +1461,25 @@ public func isStarGiftCraftable(gift: StarGift.UniqueGift, canCraftAt: Int32? = 
         return false
     }
     
-    let title = gift.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let slug = gift.slug.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if let canCraftAt, canCraftAt > Int32(Date().timeIntervalSince1970) {
+        return false
+    }
     
-    let nonCraftableTitles: [String] = [
-        "plush pepe", "плюшевый пепе", "pepe", "пепе",
-        "lol pop", "леденец", "лол поп", "lol-pop", "lollipop",
-        "resistance dog", "собака сопротивления", "resistance-dog", "durov", "собака дурова",
-        "doge", "доге",
-        "trapped heart"
+    let normalizedTitle = gift.title.lowercased()
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .joined()
+    let normalizedSlug = gift.slug.lowercased()
+        .components(separatedBy: CharacterSet.alphanumerics.inverted)
+        .joined()
+    
+    let bannedKeywords = [
+        "plushpepe", "плюшевыйпепе",
+        "lolpop", "лолпоп", "lollipop",
+        "resistancedog", "собакасопротивления"
     ]
-    for nonCraftable in nonCraftableTitles {
-        let slugCandidate = nonCraftable.replacingOccurrences(of: " ", with: "-")
-        if title == nonCraftable || title.hasPrefix(nonCraftable + " ") || title.hasSuffix(" " + nonCraftable) || title.contains(" " + nonCraftable + " ") || slug.hasPrefix(slugCandidate) || slug.contains(slugCandidate) {
+    
+    for banned in bannedKeywords {
+        if normalizedTitle.hasPrefix(banned) || normalizedSlug.hasPrefix(banned) {
             return false
         }
     }
@@ -1823,7 +1828,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
         let targetPeerIdInt = peerId.id._internalGetInt64Value()
         let existing = FakeProfileManager.shared.fakeGifts(for: targetPeerIdInt)
         guard !existing.contains(where: { $0.slug?.lowercased() == slug.lowercased() }) else {
-            return .complete()
+            return .fail(.serverProvided("Этот подарок уже приобретен."))
         }
         
         var deducted = false
@@ -1951,7 +1956,29 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
+                    canCraft: isStarGiftCraftable(gift: StarGift.UniqueGift(
+                        id: 0,
+                        giftId: 0,
+                        title: fallbackTitle.isEmpty ? slug : fallbackTitle,
+                        number: fallbackNum,
+                        slug: slug,
+                        owner: .peerId(peerId),
+                        attributes: [],
+                        availability: StarGift.UniqueGift.Availability(issued: 1, total: 1000),
+                        giftAddress: nil,
+                        resellAmounts: nil,
+                        resellForTonOnly: false,
+                        releasedBy: nil,
+                        valueAmount: nil,
+                        valueCurrency: nil,
+                        valueUsdAmount: nil,
+                        flags: [],
+                        themePeerId: nil,
+                        peerColor: nil,
+                        hostPeerId: nil,
+                        minOfferStars: 100,
+                        craftChancePermille: nil
+                    )),
                     isUpgraded: true,
                     canUpgrade: false,
                     title: fallbackTitle.isEmpty ? slug : fallbackTitle,
@@ -5021,7 +5048,29 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
+                    canCraft: isStarGiftCraftable(gift: StarGift.UniqueGift(
+                        id: 0,
+                        giftId: 0,
+                        title: fallbackTitle.isEmpty ? slug : fallbackTitle,
+                        number: fallbackNum,
+                        slug: slug,
+                        owner: .peerId(peerId),
+                        attributes: [],
+                        availability: StarGift.UniqueGift.Availability(issued: 1, total: 1000),
+                        giftAddress: nil,
+                        resellAmounts: nil,
+                        resellForTonOnly: false,
+                        releasedBy: nil,
+                        valueAmount: nil,
+                        valueCurrency: nil,
+                        valueUsdAmount: nil,
+                        flags: [],
+                        themePeerId: nil,
+                        peerColor: nil,
+                        hostPeerId: nil,
+                        minOfferStars: 100,
+                        craftChancePermille: nil
+                    )),
                     isUpgraded: true,
                     canUpgrade: false,
                     title: collectionTitle,
