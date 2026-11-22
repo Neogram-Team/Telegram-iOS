@@ -4862,6 +4862,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     let message = StoreMessage(
                         peerId: account.peerId,
                         namespace: Namespaces.Message.Local,
+                        customStableId: nil,
                         globallyUniqueId: nil,
                         groupingKey: nil,
                         threadId: nil,
