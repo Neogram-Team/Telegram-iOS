@@ -3816,7 +3816,7 @@ private final class ProfileGiftsContextImpl {
                 }
                 return true
             case let .generic(genericGift):
-                if genericGift.id == 0 && genericGift.title.isEmpty {
+                if genericGift.id == 0 && (genericGift.title ?? "").isEmpty {
                     return false
                 }
                 if genericGift.file.resource is EmptyMediaResource {

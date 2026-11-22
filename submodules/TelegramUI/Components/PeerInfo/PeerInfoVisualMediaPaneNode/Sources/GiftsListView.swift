@@ -162,7 +162,7 @@ final class GiftsListView: UIView {
             let sanitizeGift: (ProfileGiftsContext.State.StarGift) -> Bool = { product in
                 switch product.gift {
                 case let .generic(gift):
-                    if gift.id == 0 && gift.title.isEmpty { return false }
+                    if gift.id == 0 && (gift.title ?? "").isEmpty { return false }
                     if gift.file.resource is EmptyMediaResource { return false }
                     return true
                 case let .unique(gift):
