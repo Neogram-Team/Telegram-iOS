@@ -172,7 +172,7 @@ final class GiftsListView: UIView {
                         if case let .pattern(_, file, _) = $0, !(file.resource is EmptyMediaResource) { return true }
                         return false
                     })
-                    if !hasValidMedia && gift.giftId == 0 { return false }
+                    if !hasValidMedia { return false }
                     return true
                 }
             }

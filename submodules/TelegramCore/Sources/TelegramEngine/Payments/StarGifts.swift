@@ -1833,11 +1833,12 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
         
         var deducted = false
         if isTon {
+            let tonNanos: Int64 = effectivePrice.amount.value < 1_000_000 ? effectivePrice.amount.value * 1_000_000_000 : effectivePrice.amount.value
             if hasFakeTon {
-                deducted = FakeProfileManager.shared.deductFakeTon(nanos: effectivePrice.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
+                deducted = FakeProfileManager.shared.deductFakeTon(nanos: tonNanos, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
             }
             if !deducted && hasFakeStars {
-                let tonDouble = Double(effectivePrice.amount.value) / 1_000_000_000.0
+                let tonDouble = Double(tonNanos) / 1_000_000_000.0
                 let starsEquiv = max(1, Int64((tonDouble * 65.0).rounded()))
                 deducted = FakeProfileManager.shared.deductFakeStars(starsEquiv, for: currentPeerId, title: "Покупка подарка (TON)", subtitle: slug)
             }
@@ -1881,11 +1882,39 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     return false
                 })
                 
+                var innerColor: Int32?
+                var outerColor: Int32?
+                var patternColor: Int32?
+                var textColor: Int32?
+                var patternName = uniqueGift.title
+                
+                for attr in cleanAttributes {
+                    switch attr {
+                    case let .backdrop(n, _, inC, outC, pC, tC, _):
+                        innerColor = inC
+                        outerColor = outC
+                        patternColor = pC
+                        textColor = tC
+                        patternName = n
+                    case let .pattern(n, _, _):
+                        if patternName.isEmpty { patternName = n }
+                    default:
+                        break
+                    }
+                }
+                
+                let outerHex: String = {
+                    if let outerColor, outerColor != 0 {
+                        return String(format: "#%06X", (UInt32(bitPattern: outerColor) & 0xFFFFFF))
+                    }
+                    return "#D4AF37"
+                }()
+
                 let item = FakeStarGiftItem(
                     id: UUID(),
                     baseGiftId: uniqueGift.giftId,
-                    backdropColorHex: "#D4AF37",
-                    patternName: uniqueGift.title,
+                    backdropColorHex: outerHex,
+                    patternName: patternName,
                     giftNumber: uniqueGift.number,
                     canTransfer: true,
                     canResell: true,
@@ -1902,10 +1931,10 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     canUpgrade: false,
                     title: uniqueGift.title,
                     slug: uniqueGift.slug,
-                    innerColor: nil,
-                    outerColor: nil,
-                    patternColor: nil,
-                    textColor: nil,
+                    innerColor: innerColor,
+                    outerColor: outerColor,
+                    patternColor: patternColor,
+                    textColor: textColor,
                     upgradeStars: nil,
                     rawUniqueGiftData: boughtUniqueGift.serialize(),
                     hideOriginalDetails: true
@@ -1998,6 +2027,8 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
     |> `catch` { error -> Signal<BotPaymentForm?, BuyStarGiftError> in
         if case let .starGiftResellTooEarly(timestamp) = error {
             return .fail(.starGiftResellTooEarly(timestamp))
+        } else if case let .serverProvided(text) = error {
+            return .fail(.serverProvided(text))
         }
         return .fail(.generic)
     }
@@ -2547,20 +2578,22 @@ public final class StarGiftsRealMediaCache: @unchecked Sendable {
     }
     
     public func register(file: TelegramMediaFile, for giftId: Int64) {
+        guard !(file.resource is EmptyMediaResource) else { return }
         self.lock.lock()
         defer { self.lock.unlock() }
         self.mediaFiles[giftId] = file
-        if self.defaultMediaFile == nil {
+        if self.defaultMediaFile == nil || (self.defaultMediaFile?.resource is EmptyMediaResource) {
             self.defaultMediaFile = file
         }
     }
     
     public func register(gift: StarGift.Gift) {
+        guard !(gift.file.resource is EmptyMediaResource) else { return }
         self.lock.lock()
         defer { self.lock.unlock() }
         self.genericGifts[gift.id] = gift
         self.mediaFiles[gift.id] = gift.file
-        if self.defaultMediaFile == nil {
+        if self.defaultMediaFile == nil || (self.defaultMediaFile?.resource is EmptyMediaResource) {
             self.defaultMediaFile = gift.file
         }
     }
@@ -2575,6 +2608,25 @@ public final class StarGiftsRealMediaCache: @unchecked Sendable {
         self.lock.lock()
         defer { self.lock.unlock() }
         return self.mediaFiles[giftId]
+    }
+
+    public func anyValidFile() -> TelegramMediaFile? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        if let defaultMediaFile = self.defaultMediaFile, !(defaultMediaFile.resource is EmptyMediaResource) {
+            return defaultMediaFile
+        }
+        for (_, file) in self.mediaFiles {
+            if !(file.resource is EmptyMediaResource) {
+                return file
+            }
+        }
+        for (_, gift) in self.genericGifts {
+            if !(gift.file.resource is EmptyMediaResource) {
+                return gift.file
+            }
+        }
+        return nil
     }
 }
 
@@ -2599,7 +2651,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         attributes: [.FileName(fileName: "\(item.patternName).tgs")],
         alternativeRepresentations: []
     )
-    let realFile = StarGiftsRealMediaCache.shared.file(for: item.baseGiftId) ?? fallbackFile
+    let realFile = StarGiftsRealMediaCache.shared.file(for: item.baseGiftId) ?? StarGiftsRealMediaCache.shared.anyValidFile() ?? fallbackFile
     
     let bytes = item.id.uuid
     let raw = (UInt64(bytes.0) << 56) |
@@ -2665,6 +2717,39 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         if item.hideOriginalDetails {
             cleanAttributes = cleanAttributes.filter { $0.attributeType != .originalInfo }
         }
+        
+        var fixedAttributes: [StarGift.UniqueGift.Attribute] = []
+        var hasValidModel = false
+        for attr in cleanAttributes {
+            switch attr {
+            case let .model(name, file, rarity, isCrafted):
+                if file.resource is EmptyMediaResource, let valid = StarGiftsRealMediaCache.shared.file(for: deserializedGift.giftId) ?? StarGiftsRealMediaCache.shared.file(for: item.baseGiftId) ?? StarGiftsRealMediaCache.shared.anyValidFile() {
+                    fixedAttributes.append(.model(name: name, file: valid, rarity: rarity, crafted: isCrafted || crafted))
+                    hasValidModel = true
+                } else {
+                    fixedAttributes.append(attr)
+                    if !(file.resource is EmptyMediaResource) { hasValidModel = true }
+                }
+            case let .pattern(name, file, rarity):
+                if file.resource is EmptyMediaResource, let valid = StarGiftsRealMediaCache.shared.file(for: deserializedGift.giftId) ?? StarGiftsRealMediaCache.shared.file(for: item.baseGiftId) ?? StarGiftsRealMediaCache.shared.anyValidFile() {
+                    fixedAttributes.append(.pattern(name: name, file: valid, rarity: rarity))
+                } else {
+                    fixedAttributes.append(attr)
+                }
+            case let .backdrop(name, id, inC, outC, pC, tC, rarity):
+                if inC == 0 && outC == 0 {
+                    fixedAttributes.append(.backdrop(name: name, id: id, innerColor: Int32(bitPattern: 0xFF9333EA), outerColor: Int32(bitPattern: 0xFF4C1D95), patternColor: Int32(bitPattern: 0xFFC084FC), textColor: tC, rarity: rarity))
+                } else {
+                    fixedAttributes.append(attr)
+                }
+            default:
+                fixedAttributes.append(attr)
+            }
+        }
+        if !hasValidModel, let valid = StarGiftsRealMediaCache.shared.anyValidFile() {
+            fixedAttributes.append(.model(name: deserializedGift.title, file: valid, rarity: .legendary, crafted: crafted))
+        }
+        cleanAttributes = fixedAttributes
         
         for attr in cleanAttributes {
             switch attr {
@@ -2735,12 +2820,20 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         )
     }
     
+    let safeBackdropColor: Int32 = {
+        if backdropColor != 0 { return backdropColor }
+        return Int32(bitPattern: 0xFF7C3AED)
+    }()
+    let safeInnerColor: Int32 = item.innerColor.flatMap { $0 != 0 ? $0 : nil } ?? safeBackdropColor
+    let safeOuterColor: Int32 = item.outerColor.flatMap { $0 != 0 ? $0 : nil } ?? safeBackdropColor
+    let safePatternColor: Int32 = item.patternColor.flatMap { $0 != 0 ? $0 : nil } ?? safeBackdropColor
+    
     let backdropAttr = StarGift.UniqueGift.Attribute.backdrop(
         name: "Backdrop",
         id: 1,
-        innerColor: item.innerColor ?? backdropColor,
-        outerColor: item.outerColor ?? backdropColor,
-        patternColor: item.patternColor ?? backdropColor,
+        innerColor: safeInnerColor,
+        outerColor: safeOuterColor,
+        patternColor: safePatternColor,
         textColor: item.textColor ?? -1,
         rarity: crafted ? .legendary : .rare
     )
@@ -3807,7 +3900,7 @@ private final class ProfileGiftsContextImpl {
                     if case let .pattern(_, file, _) = $0, !(file.resource is EmptyMediaResource) { return true }
                     return false
                 })
-                if !hasValidMedia && uniqueGift.giftId == 0 {
+                if !hasValidMedia {
                     return false
                 }
                 return true
@@ -4600,6 +4693,12 @@ private final class CraftGiftsContextImpl {
             guard !ug.flags.contains(.isBurned) && !(ug.id == 0 && ug.title.isEmpty) else {
                 return nil
             }
+            let hasValidMedia = ug.attributes.contains(where: {
+                if case let .model(_, file, _, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                if case let .pattern(_, file, _) = $0, !(file.resource is EmptyMediaResource) { return true }
+                return false
+            })
+            guard hasValidMedia else { return nil }
             guard isStarGiftCraftable(gift: ug, canCraftAt: gift.canCraftAt) else {
                 return nil
             }
@@ -4863,7 +4962,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     if let selected = models.first(where: { !($0.file.resource is EmptyMediaResource) }) {
                         return .model(name: selected.name, file: selected.file, rarity: .legendary, crafted: true)
                     }
-                    if let fallback = validFileFromIngredients ?? StarGiftsRealMediaCache.shared.file(for: baseGiftId) {
+                    if let fallback = validFileFromIngredients ?? StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? StarGiftsRealMediaCache.shared.anyValidFile() {
                         return .model(name: "Crafted \(collectionTitle)", file: fallback, rarity: .legendary, crafted: true)
                     }
                     let fallbackMediaFile = StarGiftsRealMediaCache.shared.file(for: 0) ?? TelegramMediaFile(
@@ -4883,19 +4982,28 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 
                 let chosenBackdropAttr: StarGift.UniqueGift.Attribute = {
                     let ingredientBackdrops = ingredientAttributes.compactMap { attr -> StarGift.UniqueGift.Attribute? in
-                        if case .backdrop = attr { return attr }
+                        if case let .backdrop(_, _, inC, outC, _, _, _) = attr, (inC != 0 || outC != 0) { return attr }
                         return nil
                     }
                     if !ingredientBackdrops.isEmpty && Int.random(in: 1...100) <= 70, let selected = ingredientBackdrops.randomElement() {
                         return selected
                     }
-                    if let selected = backdrops.randomElement() {
+                    if let selected = backdrops.filter({ $0.inner != 0 || $0.outer != 0 }).randomElement() {
                         return .backdrop(name: selected.name, id: selected.id, innerColor: selected.inner, outerColor: selected.outer, patternColor: selected.pat, textColor: selected.txt, rarity: selected.rarity)
                     }
-                    let inC = matchedFakeItems.first?.innerColor ?? Int32(bitPattern: 0xFF9333EA)
-                    let outC = matchedFakeItems.first?.outerColor ?? Int32(bitPattern: 0xFF4C1D95)
-                    let pC = matchedFakeItems.first?.patternColor ?? Int32(bitPattern: 0xFFC084FC)
-                    let tC = matchedFakeItems.first?.textColor ?? -1
+                    let inC: Int32 = {
+                        if let c = matchedFakeItems.first?.innerColor, c != 0 { return c }
+                        return Int32(bitPattern: 0xFF9333EA)
+                    }()
+                    let outC: Int32 = {
+                        if let c = matchedFakeItems.first?.outerColor, c != 0 { return c }
+                        return Int32(bitPattern: 0xFF4C1D95)
+                    }()
+                    let pC: Int32 = {
+                        if let c = matchedFakeItems.first?.patternColor, c != 0 { return c }
+                        return Int32(bitPattern: 0xFFC084FC)
+                    }()
+                    let tC: Int32 = matchedFakeItems.first?.textColor ?? -1
                     return .backdrop(name: "Crafted Aura", id: 99, innerColor: inC, outerColor: outC, patternColor: pC, textColor: tC, rarity: .legendary)
                 }()
                 
@@ -4910,8 +5018,11 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     if let selected = patterns.first(where: { !($0.file.resource is EmptyMediaResource) }) {
                         return .pattern(name: selected.name, file: selected.file, rarity: selected.rarity)
                     }
-                    if case let .model(_, f, _, _) = chosenModelAttr {
+                    if case let .model(_, f, _, _) = chosenModelAttr, !(f.resource is EmptyMediaResource) {
                         return .pattern(name: "Crafted Pattern", file: f, rarity: .legendary)
+                    }
+                    if let fallback = StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? StarGiftsRealMediaCache.shared.anyValidFile() {
+                        return .pattern(name: "Crafted Pattern", file: fallback, rarity: .legendary)
                     }
                     let fallbackMediaFile = StarGiftsRealMediaCache.shared.file(for: baseGiftId) ?? StarGiftsRealMediaCache.shared.file(for: 0) ?? TelegramMediaFile(
                         fileId: MediaId(namespace: Namespaces.Media.LocalFile, id: baseGiftId != 0 ? baseGiftId : 999990),
@@ -4930,8 +5041,13 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 
                 let existingNumbers = Set(remainingFakeGifts.compactMap { $0.giftNumber })
                 var newNumber: Int32 = Int32.random(in: 1...500)
-                while existingNumbers.contains(newNumber) {
+                var attempts = 0
+                while existingNumbers.contains(newNumber) && attempts < 100 {
                     newNumber = Int32.random(in: 1...5000)
+                    attempts += 1
+                }
+                if existingNumbers.contains(newNumber) {
+                    newNumber = (existingNumbers.max() ?? 500) + 1
                 }
                 let newUuid = UUID()
                 let newSlug = "\(baseSlug)-\(newNumber)"

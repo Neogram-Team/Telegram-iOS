@@ -185,6 +185,7 @@ public enum BotPaymentFormRequestError {
     case disallowedStarGift
     case starGiftResellTooEarly(Int32)
     case starGiftUserLimit
+    case serverProvided(String)
 }
 
 extension BotPaymentInvoice {
@@ -547,6 +548,8 @@ func _internal_fetchBotPaymentForm(accountPeerId: PeerId, postbox: Postbox, netw
                 }
             } else if error.errorDescription == "STARGIFT_USER_USAGE_LIMITED" {
                 return .fail(.starGiftUserLimit)
+            } else if !error.errorDescription.isEmpty {
+                return .fail(.serverProvided(error.errorDescription))
             }
             return .fail(.generic)
         }
@@ -836,6 +839,8 @@ func _internal_sendBotPaymentForm(account: Account, formId: Int64, source: BotPa
                 return .fail(.paymentFailed)
             } else if error.errorDescription == "INVOICE_ALREADY_PAID" {
                 return .fail(.alreadyPaid)
+            } else if !error.errorDescription.isEmpty {
+                return .fail(.serverProvided(error.errorDescription))
             }
             return .fail(.generic)
         }

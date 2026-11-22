@@ -689,14 +689,39 @@ public final class GiftItemComponent: Component {
                         patternFile = file
                         files[file.fileId.id] = file
                     case let .backdrop(_, _, innerColorValue, outerColorValue, patternColorValue, _, _):
-                        backgroundColor = UIColor(rgb: UInt32(bitPattern: outerColorValue))
-                        secondBackgroundColor = UIColor(rgb: UInt32(bitPattern: innerColorValue))
-                        patternColor = UIColor(rgb: UInt32(bitPattern: patternColorValue))
+                        if outerColorValue != 0 {
+                            backgroundColor = UIColor(rgb: UInt32(bitPattern: outerColorValue))
+                        } else {
+                            backgroundColor = UIColor(rgb: 0x4C1D95)
+                        }
+                        if innerColorValue != 0 {
+                            secondBackgroundColor = UIColor(rgb: UInt32(bitPattern: innerColorValue))
+                        } else {
+                            secondBackgroundColor = UIColor(rgb: 0x9333EA)
+                        }
+                        if patternColorValue != 0 {
+                            patternColor = UIColor(rgb: UInt32(bitPattern: patternColorValue))
+                        }
                         if let backgroundColor {
                             placeholderColor = backgroundColor
                         }
                     default:
                         break
+                    }
+                }
+                
+                if backgroundColor == nil {
+                    let fallback = UIColor(rgb: 0x4C1D95)
+                    backgroundColor = fallback
+                    secondBackgroundColor = UIColor(rgb: 0x9333EA)
+                    placeholderColor = fallback
+                }
+                                
+                if animationFile == nil || (animationFile?.resource is EmptyMediaResource) {
+                    animationFile = StarGiftsRealMediaCache.shared.file(for: gift.giftId) ?? StarGiftsRealMediaCache.shared.file(for: gift.id) ?? StarGiftsRealMediaCache.shared.anyValidFile()
+                    if let animationFile, !self.fetchedFiles.contains(animationFile.fileId.id) {
+                        self.disposables.add(freeMediaFileResourceInteractiveFetched(account: component.context.account, userLocation: .other, fileReference: .standalone(media: animationFile), resource: animationFile.resource).start())
+                        self.fetchedFiles.insert(animationFile.fileId.id)
                     }
                 }
                                 
@@ -780,9 +805,19 @@ public final class GiftItemComponent: Component {
                         patternFile = file
                         files[file.fileId.id] = file
                     case let .backdrop(_, _, innerColorValue, outerColorValue, patternColorValue, _, _):
-                        backgroundColor = UIColor(rgb: UInt32(bitPattern: outerColorValue))
-                        secondBackgroundColor = UIColor(rgb: UInt32(bitPattern: innerColorValue))
-                        patternColor = UIColor(rgb: UInt32(bitPattern: patternColorValue))
+                        if outerColorValue != 0 {
+                            backgroundColor = UIColor(rgb: UInt32(bitPattern: outerColorValue))
+                        } else {
+                            backgroundColor = UIColor(rgb: 0x4C1D95)
+                        }
+                        if innerColorValue != 0 {
+                            secondBackgroundColor = UIColor(rgb: UInt32(bitPattern: innerColorValue))
+                        } else {
+                            secondBackgroundColor = UIColor(rgb: 0x9333EA)
+                        }
+                        if patternColorValue != 0 {
+                            patternColor = UIColor(rgb: UInt32(bitPattern: patternColorValue))
+                        }
                         if let backgroundColor {
                             placeholderColor = backgroundColor
                         }
@@ -791,8 +826,19 @@ public final class GiftItemComponent: Component {
                     }
                 }
                 
-                if animationFile == nil, let patternFile {
-                    animationFile = patternFile
+                if backgroundColor == nil {
+                    let fallback = UIColor(rgb: 0x4C1D95)
+                    backgroundColor = fallback
+                    secondBackgroundColor = UIColor(rgb: 0x9333EA)
+                    placeholderColor = fallback
+                }
+                
+                if animationFile == nil || (animationFile?.resource is EmptyMediaResource) {
+                    if let patternFile, !(patternFile.resource is EmptyMediaResource) {
+                        animationFile = patternFile
+                    } else {
+                        animationFile = StarGiftsRealMediaCache.shared.anyValidFile()
+                    }
                 }
                                 
                 if let animationFile {
