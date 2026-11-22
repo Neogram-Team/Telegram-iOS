@@ -2621,7 +2621,14 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         }()
         let forTonOnly = item.resellPriceTon != nil && (item.resellPriceStars == nil || item.resellPriceStars == 0)
         
-        let effectiveCraftChance: Int32? = item.canCraft ? (deserializedGift.craftChancePermille ?? 250) : nil
+        let isAlreadyCrafted: Bool = {
+            if crafted { return true }
+            return cleanAttributes.contains(where: {
+                if case let .model(_, _, _, isCrafted) = $0 { return isCrafted }
+                return false
+            })
+        }()
+        let effectiveCraftChance: Int32? = isAlreadyCrafted ? nil : (deserializedGift.craftChancePermille ?? 250)
         let uniqueGift = deserializedGift
             .withAttributes(cleanAttributes)
             .withOwner(.peerId(targetPeerId))
@@ -2652,7 +2659,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
             dropOriginalDetailsStars: nil,
             number: uniqueGift.number,
             isRefunded: false,
-            canCraftAt: item.canCraft ? 0 : nil
+            canCraftAt: isAlreadyCrafted ? nil : 0
         )
     }
     
@@ -2720,7 +2727,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         peerColor: nil,
         hostPeerId: nil,
         minOfferStars: 100,
-        craftChancePermille: item.canCraft ? 250 : nil
+        craftChancePermille: crafted ? nil : 250
     )
     
     return ProfileGiftsContext.State.StarGift(
@@ -2746,7 +2753,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         dropOriginalDetailsStars: nil,
         number: item.giftNumber,
         isRefunded: false,
-        canCraftAt: item.canCraft ? 0 : nil
+        canCraftAt: crafted ? nil : 0
     )
 }
 
@@ -4452,7 +4459,6 @@ private final class CraftGiftsContextImpl {
         var effectiveGifts = self.gifts
         let currentPeerId = self.account.peerId.id._internalGetInt64Value()
         let fakeCraftable = FakeProfileManager.shared.fakeGifts(for: currentPeerId).filter { item in
-            guard item.canCraft else { return false }
             if self.giftId == 0 {
                 return true
             }
