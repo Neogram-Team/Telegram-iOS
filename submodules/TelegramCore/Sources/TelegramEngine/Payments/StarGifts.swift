@@ -1767,9 +1767,9 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
     let currentPeerId = account.peerId.id._internalGetInt64Value()
     if let price, price.amount.value > 0 {
         let isTon = price.currency == .ton
-        let hasFakeBalance = isTon
-            ? (FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil)
-            : (FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil)
+        let hasFakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil
+        let hasFakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil
+        let hasFakeBalance = isTon ? (hasFakeTon || hasFakeStars) : (hasFakeStars || hasFakeTon)
         
         if hasFakeBalance {
             let targetPeerIdInt = peerId.id._internalGetInt64Value()
@@ -1778,14 +1778,19 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                 return .complete()
             }
             
-            if isTon {
+            if isTon && hasFakeTon {
                 guard FakeProfileManager.shared.deductFakeTon(nanos: price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
                     return .fail(.generic)
                 }
-            } else {
+            } else if !isTon && hasFakeStars {
                 guard FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
                     return .fail(.generic)
                 }
+            } else if hasFakeTon {
+                let tonNanos = FakeProfileManager.tonToNanos(Double(price.amount.value) / 100.0)
+                let _ = FakeProfileManager.shared.deductFakeTon(nanos: max(1_000_000_000, tonNanos), for: currentPeerId, title: "Покупка подарка", subtitle: slug)
+            } else if hasFakeStars {
+                let _ = FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
             }
             
             let saveBoughtGift: (StarGift.UniqueGift) -> Signal<Never, BuyStarGiftError> = { uniqueGift in
@@ -1809,6 +1814,11 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     }
                 }
                 
+                let isAlreadyCrafted = cleanAttributes.contains(where: {
+                    if case let .model(_, _, _, crafted) = $0 { return crafted }
+                    return false
+                })
+                
                 let item = FakeStarGiftItem(
                     id: UUID(),
                     baseGiftId: uniqueGift.giftId,
@@ -1825,7 +1835,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: true,
+                    canCraft: !isAlreadyCrafted,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: uniqueGift.title,
@@ -4892,7 +4902,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: true,
+                    canCraft: false,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: collectionTitle,

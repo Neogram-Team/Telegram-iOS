@@ -28,7 +28,10 @@ public func buyStarGiftImpl(
     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                     
     let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, @escaping () -> Void) -> Void = { currency, message, beforeCompletion in
-        guard let resellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == currency }) else {
+        let effectiveResellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == currency })
+            ?? (acceptedPrice?.currency == currency ? acceptedPrice : nil)
+            ?? uniqueGift.resellAmounts?.first
+        guard let resellAmount = effectiveResellAmount else {
             guard let controller = getController() else {
                 return
             }
@@ -56,7 +59,7 @@ public func buyStarGiftImpl(
         let isTon = finalPrice.currency == .ton
         let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
         let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
-        let hasFakeBalanceForCurrency = isTon ? (fakeTon != nil) : (fakeStars != nil)
+        let hasFakeBalanceForCurrency = isTon ? (fakeTon != nil || fakeStars != nil) : (fakeStars != nil || fakeTon != nil)
 
         let proceed: () -> Void = {
             updateProgress(true)
@@ -324,7 +327,8 @@ public func buyStarGiftImpl(
     }
     
     if skipConfirmation {
-        action(acceptedPrice?.currency ?? .stars, message ?? GiftMessageScreen.Result(hideName: true, text: nil, entities: nil), {})
+        let defaultCurrency = acceptedPrice?.currency ?? uniqueGift.resellAmounts?.first?.currency ?? .stars
+        action(defaultCurrency, message ?? GiftMessageScreen.Result(hideName: true, text: nil, entities: nil), {})
     } else {
         let _ = (context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: recipientPeerId))
         |> deliverOnMainQueue).start(next: { peer in
@@ -362,6 +366,11 @@ public func buyStarGiftImpl(
                 }
 
                 updateIsBalanceVisible(false)
+            }
+
+            if recipientPeerId == context.account.peerId {
+                presentConfirmation(GiftMessageScreen.Result(hideName: true, text: nil, entities: nil), nil)
+                return
             }
 
             weak var messageController: GiftMessageScreen?
