@@ -1450,6 +1450,7 @@ extension StarGift {
 }
 
 public func isStarGiftCraftable(gift: StarGift.UniqueGift, canCraftAt: Int32? = nil) -> Bool {
+    _ = canCraftAt
     if gift.flags.contains(.isBurned) {
         return false
     }
@@ -1465,39 +1466,20 @@ public func isStarGiftCraftable(gift: StarGift.UniqueGift, canCraftAt: Int32? = 
     let slug = gift.slug.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     
     let nonCraftableTitles: [String] = [
-        "plush pepe", "lol pop", "resistance dog", "doge", "heart",
-        "signet ring", "diamond ring", "perfume bottle", "swiss watch",
-        "kissed frog", "heroic helmet", "sharp tongue", "ice cream",
-        "nail polish", "diamond", "champagne", "party popper",
-        "magic 8-ball", "eternal rose", "loot box", "spy agaric",
-        "gingerbread house", "b-day candle", "skull flower",
-        "astronaut helmet", "mad pumpkin", "trapped heart", "witch hat",
-        "top hat", "santa sleigh", "tiki torch", "red cap", "tiki mana",
-        "bear", "vampire lips", "kiss", "mask", "myth mask"
+        "plush pepe", "плюшевый пепе", "pepe", "пепе",
+        "lol pop", "леденец", "лол поп", "lol-pop", "lollipop",
+        "resistance dog", "собака сопротивления", "resistance-dog", "durov", "собака дурова",
+        "doge", "доге",
+        "trapped heart"
     ]
     for nonCraftable in nonCraftableTitles {
-        if title == nonCraftable || title.hasPrefix(nonCraftable) || slug.hasPrefix(nonCraftable.replacingOccurrences(of: " ", with: "-")) {
+        let slugCandidate = nonCraftable.replacingOccurrences(of: " ", with: "-")
+        if title == nonCraftable || title.hasPrefix(nonCraftable + " ") || title.hasSuffix(" " + nonCraftable) || title.contains(" " + nonCraftable + " ") || slug.hasPrefix(slugCandidate) || slug.contains(slugCandidate) {
             return false
         }
     }
     
-    let craftableKeywords: [String] = [
-        "desk calendar", "jingle bells", "santa hat", "gingerbread cookie",
-        "snow globe", "christmas tree", "new year tree", "magic potion",
-        "duffel bag", "spy watch", "party sparkler", "winter mitten",
-        "holiday drink", "vintage cigar"
-    ]
-    for craftable in craftableKeywords {
-        if title.contains(craftable) || slug.contains(craftable.replacingOccurrences(of: " ", with: "-")) {
-            return true
-        }
-    }
-    
-    if let chance = gift.craftChancePermille, chance > 0, let canCraftAt, canCraftAt >= 0 {
-        return true
-    }
-    
-    return false
+    return true
 }
 
 func _internal_cachedStarGifts(postbox: Postbox) -> Signal<StarGiftsList?, NoError> {
@@ -1820,44 +1802,53 @@ func insertLocalStarGiftUniqueMessage(
 
 func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id, price: CurrencyAmount?, hideName: Bool = true, text: String? = nil, entities: [MessageTextEntity]? = nil) -> Signal<Never, BuyStarGiftError> {
     let currentPeerId = account.peerId.id._internalGetInt64Value()
-    if let price, price.amount.value > 0 {
-        let isTon = price.currency == .ton
-        let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
-        let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
-        let hasFakeTon = fakeTon != nil
-        let hasFakeStars = fakeStars != nil
-        let hasAnyFakeBalance = hasFakeTon || hasFakeStars
-        
-        if hasAnyFakeBalance {
-            let targetPeerIdInt = peerId.id._internalGetInt64Value()
-            let existing = FakeProfileManager.shared.fakeGifts(for: targetPeerIdInt)
-            guard !existing.contains(where: { $0.slug?.lowercased() == slug.lowercased() }) else {
-                return .complete()
+    let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
+    let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
+    let hasFakeTon = fakeTon != nil
+    let hasFakeStars = fakeStars != nil
+    let hasAnyFakeBalance = hasFakeTon || hasFakeStars
+    
+    if hasAnyFakeBalance {
+        let effectivePrice: CurrencyAmount = {
+            if let price, price.amount.value > 0 {
+                return price
             }
-            
-            var deducted = false
-            if isTon {
-                if hasFakeTon {
-                    deducted = FakeProfileManager.shared.deductFakeTon(nanos: price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
-                }
-                if !deducted && hasFakeStars {
-                    let tonDouble = Double(price.amount.value) / 1_000_000_000.0
-                    let starsEquiv = max(1, Int64((tonDouble * 65.0).rounded()))
-                    deducted = FakeProfileManager.shared.deductFakeStars(starsEquiv, for: currentPeerId, title: "Покупка подарка (TON)", subtitle: slug)
-                }
+            if hasFakeTon {
+                return CurrencyAmount(amount: StarsAmount(value: 1_000_000_000, nanos: 0), currency: .ton)
             } else {
-                if hasFakeStars {
-                    deducted = FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
-                }
-                if !deducted && hasFakeTon {
-                    let tonNanosEquiv = max(1, Int64((Double(price.amount.value) / 65.0 * 1_000_000_000.0).rounded()))
-                    deducted = FakeProfileManager.shared.deductFakeTon(nanos: tonNanosEquiv, for: currentPeerId, title: "Покупка подарка (Stars)", subtitle: slug)
-                }
+                return CurrencyAmount(amount: StarsAmount(value: 100, nanos: 0), currency: .stars)
             }
-            
-            guard deducted else {
-                return .fail(.serverProvided("Недостаточно средств на балансе для покупки."))
+        }()
+        let isTon = effectivePrice.currency == .ton
+        let targetPeerIdInt = peerId.id._internalGetInt64Value()
+        let existing = FakeProfileManager.shared.fakeGifts(for: targetPeerIdInt)
+        guard !existing.contains(where: { $0.slug?.lowercased() == slug.lowercased() }) else {
+            return .complete()
+        }
+        
+        var deducted = false
+        if isTon {
+            if hasFakeTon {
+                deducted = FakeProfileManager.shared.deductFakeTon(nanos: effectivePrice.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
             }
+            if !deducted && hasFakeStars {
+                let tonDouble = Double(effectivePrice.amount.value) / 1_000_000_000.0
+                let starsEquiv = max(1, Int64((tonDouble * 65.0).rounded()))
+                deducted = FakeProfileManager.shared.deductFakeStars(starsEquiv, for: currentPeerId, title: "Покупка подарка (TON)", subtitle: slug)
+            }
+        } else {
+            if hasFakeStars {
+                deducted = FakeProfileManager.shared.deductFakeStars(effectivePrice.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
+            }
+            if !deducted && hasFakeTon {
+                let tonNanosEquiv = max(1, Int64((Double(effectivePrice.amount.value) / 65.0 * 1_000_000_000.0).rounded()))
+                deducted = FakeProfileManager.shared.deductFakeTon(nanos: tonNanosEquiv, for: currentPeerId, title: "Покупка подарка (Stars)", subtitle: slug)
+            }
+        }
+        
+        guard deducted else {
+            return .fail(.serverProvided("Недостаточно средств на балансе для покупки."))
+        }
             
             let saveBoughtGift: (StarGift.UniqueGift) -> Signal<Never, BuyStarGiftError> = { uniqueGift in
                 let cleanAttributes = uniqueGift.attributes.filter { $0.attributeType != .originalInfo }
@@ -1923,7 +1914,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     gift: boughtUniqueGift,
                     isTransferred: false,
                     savedToProfile: isSelf,
-                    resaleAmount: price,
+                    resaleAmount: effectivePrice,
                     text: text,
                     entities: entities,
                     nameHidden: hideName
@@ -1984,7 +1975,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                         gift: uniqueGift,
                         isTransferred: false,
                         savedToProfile: isSelf,
-                        resaleAmount: price,
+                        resaleAmount: effectivePrice,
                         text: text,
                         entities: entities,
                         nameHidden: hideName
@@ -1995,7 +1986,6 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                 return .complete()
             }
         }
-    }
     
     let source: BotPaymentInvoiceSource = .starGiftResale(slug: slug, toPeerId: peerId, ton: price?.currency == .ton, hideName: hideName, text: text, entities: entities)
     return _internal_fetchBotPaymentForm(accountPeerId: account.peerId, postbox: account.postbox, network: account.network, source: source, themeParams: nil)
