@@ -156,8 +156,6 @@ final class SelectGiftPageContent: Component {
             }
             transition.setFrame(view: self.loadingView, frame: CGRect(origin: CGPoint(x: 0.0, y: contentHeight - 170.0), size: loadingSize))
             
-            let currentTime = Int32(CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970)
-            
             var itemFrame = CGRect(origin: CGPoint(x: itemSideInset, y: contentHeight), size: itemSize)
             var itemsHeight: CGFloat = 0.0
             var validIds: [AnyHashable] = []
