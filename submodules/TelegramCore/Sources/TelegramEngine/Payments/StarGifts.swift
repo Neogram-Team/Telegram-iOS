@@ -1825,7 +1825,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
+                    canCraft: true,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: uniqueGift.title,
@@ -1884,7 +1884,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
+                    canCraft: true,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: fallbackTitle.isEmpty ? slug : fallbackTitle,
@@ -4892,7 +4892,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     senderPeerId: nil,
                     senderName: nil,
                     sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
+                    canCraft: true,
                     isUpgraded: true,
                     canUpgrade: false,
                     title: collectionTitle,
@@ -5837,8 +5837,7 @@ private final class ResaleGiftsContextImpl {
                 return postbox.transaction { transaction -> ([StarGift], [StarGift.UniqueGift.Attribute]?, [ResaleGiftsContext.Attribute: Int32]?, Int64?, Int32, String?) in
                     switch result {
                     case let .resaleStarGifts(resaleStarGiftsData):
-                        let (_, count, gifts, nextOffset, attributes, attributesHash, chats, counters, users) = (resaleStarGiftsData.flags, resaleStarGiftsData.count, resaleStarGiftsData.gifts, resaleStarGiftsData.nextOffset, resaleStarGiftsData.attributes, resaleStarGiftsData.attributesHash, resaleStarGiftsData.chats, resaleStarGiftsData.counters, resaleStarGiftsData.users)
-                        let _ = attributesHash
+                        let (_, count, gifts, nextOffset, attributes, _, chats, counters, users) = (resaleStarGiftsData.flags, resaleStarGiftsData.count, resaleStarGiftsData.gifts, resaleStarGiftsData.nextOffset, resaleStarGiftsData.attributes, resaleStarGiftsData.attributesHash, resaleStarGiftsData.chats, resaleStarGiftsData.counters, resaleStarGiftsData.users)
 
                         var resultAttributes: [StarGift.UniqueGift.Attribute]?
                         if let attributes {
