@@ -7096,7 +7096,6 @@ public class GiftViewScreen: ViewControllerComponentContainer {
             case let .wearPreview(gift, _):
                 return (nil, nil, nil, nil, nil, nil, false, gift, 0, nil, nil, nil, false, false, nil, false, false, false, false, nil, nil, nil, nil, nil, nil, nil, nil, false, nil, nil, nil, nil)
             }
-            return nil
         }
     }
     
