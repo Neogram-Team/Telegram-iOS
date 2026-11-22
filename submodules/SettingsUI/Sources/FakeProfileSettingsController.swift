@@ -515,8 +515,7 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
                 
                 let (fallbackTitle, fallbackNum) = parseSlugTitleAndNumber(slug: rawSlug)
                 
-                actionsDisposable.add((context.engine.payments.getUniqueStarGift(slug: rawSlug)
-                |> deliverOnMainQueue).start(next: { uniqueGift in
+                let saveGiftWithCraft: (StarGift.UniqueGift, Bool) -> Void = { uniqueGift, canCraft in
                     var innerColor: Int32?
                     var outerColor: Int32?
                     var patternColor: Int32?
@@ -561,7 +560,7 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
                         senderPeerId: nil,
                         senderName: nil,
                         sendDate: Int32(Date().timeIntervalSince1970),
-                        canCraft: false,
+                        canCraft: canCraft,
                         isUpgraded: true,
                         canUpgrade: false,
                         title: uniqueGift.title,
@@ -576,7 +575,28 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
                     )
                     FakeProfileManager.shared.addGift(item, for: currentPeerId)
                     updateState()
+                }
+                
+                actionsDisposable.add((context.engine.payments.getUniqueStarGift(slug: rawSlug)
+                |> deliverOnMainQueue).start(next: { uniqueGift in
+                    let fallbackCanCraft = (uniqueGift.craftChancePermille ?? 0) > 0 || uniqueGift.attributes.contains(where: {
+                        if case let .model(_, _, _, crafted) = $0 { return crafted }; return false
+                    })
+                    
+                    actionsDisposable.add(((context.engine.payments.getStarGiftUpgradeAttributes(giftId: uniqueGift.giftId)
+                    |> take(1)
+                    |> timeout(2.0, queue: Queue.mainQueue(), alternate: .single(nil)))
+                    |> deliverOnMainQueue).start(next: { upgradeAttributes in
+                        let hasCraftedModel = (upgradeAttributes ?? []).contains(where: {
+                            if case let .model(_, _, _, crafted) = $0 { return crafted }; return false
+                        })
+                        saveGiftWithCraft(uniqueGift, fallbackCanCraft || hasCraftedModel)
+                    }, error: { _ in
+                        saveGiftWithCraft(uniqueGift, fallbackCanCraft)
+                    }))
                 }, error: { _ in
+                    let lowerTitle = fallbackTitle.lowercased()
+                    let fallbackCanCraft = lowerTitle.contains("cap") || lowerTitle.contains("pepe") || lowerTitle.contains("ring") || rawSlug.contains("cap") || rawSlug.contains("pepe")
                     let item = FakeStarGiftItem(
                         id: UUID(),
                         baseGiftId: 0,
@@ -593,7 +613,7 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
                         senderPeerId: nil,
                         senderName: nil,
                         sendDate: Int32(Date().timeIntervalSince1970),
-                        canCraft: false,
+                        canCraft: fallbackCanCraft,
                         isUpgraded: true,
                         canUpgrade: false,
                         title: fallbackTitle,
