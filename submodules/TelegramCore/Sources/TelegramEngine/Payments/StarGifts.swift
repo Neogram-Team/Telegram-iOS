@@ -4069,6 +4069,34 @@ public final class ProfileGiftsContext {
                     canCraftAt: self.canCraftAt
                 )
             }
+            
+            public func withCanCraftAt(_ canCraftAt: Int32?) -> StarGift {
+                return StarGift(
+                    gift: self.gift,
+                    reference: self.reference,
+                    fromPeer: self.fromPeer,
+                    date: self.date,
+                    text: self.text,
+                    entities: self.entities,
+                    nameHidden: self.nameHidden,
+                    savedToProfile: self.savedToProfile,
+                    pinnedToTop: self.pinnedToTop,
+                    convertStars: self.convertStars,
+                    canUpgrade: self.canUpgrade,
+                    canExportDate: self.canExportDate,
+                    upgradeStars: self.upgradeStars,
+                    transferStars: self.transferStars,
+                    canTransferDate: self.canTransferDate,
+                    canResaleDate: self.canResaleDate,
+                    collectionIds: self.collectionIds,
+                    prepaidUpgradeHash: self.prepaidUpgradeHash,
+                    upgradeSeparate: self.upgradeSeparate,
+                    dropOriginalDetailsStars: self.dropOriginalDetailsStars,
+                    number: self.number,
+                    isRefunded: self.isRefunded,
+                    canCraftAt: canCraftAt
+                )
+            }
         }
         
         public enum DataState: Equatable {
@@ -4423,19 +4451,47 @@ private final class CraftGiftsContextImpl {
     private func pushState() {
         var effectiveGifts = self.gifts
         let currentPeerId = self.account.peerId.id._internalGetInt64Value()
-        let fakeCraftable = FakeProfileManager.shared.fakeGifts(for: currentPeerId).filter {
-            $0.canCraft && ($0.baseGiftId == self.giftId || self.giftId == 0 || $0.baseGiftId == 0)
+        let fakeCraftable = FakeProfileManager.shared.fakeGifts(for: currentPeerId).filter { item in
+            guard item.canCraft else { return false }
+            if self.giftId == 0 {
+                return true
+            }
+            if item.baseGiftId != 0 {
+                return item.baseGiftId == self.giftId
+            }
+            if item.deterministicId == self.giftId {
+                return true
+            }
+            return false
         }
         if !fakeCraftable.isEmpty {
-            let mappedFake = fakeCraftable.map { generateSingleFakeStarGift(item: $0, targetPeerId: self.account.peerId, crafted: false) }
+            let mappedFake = fakeCraftable.compactMap { item -> ProfileGiftsContext.State.StarGift? in
+                let gift = generateSingleFakeStarGift(item: item, targetPeerId: self.account.peerId, crafted: false)
+                if case let .unique(ug) = gift.gift {
+                    let isAlreadyCrafted = ug.attributes.contains(where: {
+                        if case let .model(_, _, _, crafted) = $0 { return crafted }
+                        return false
+                    })
+                    if isAlreadyCrafted {
+                        return nil
+                    }
+                }
+                return gift
+            }
             effectiveGifts = mappedFake + effectiveGifts
         }
         var seenIds = Set<Int64>()
-        effectiveGifts = effectiveGifts.filter { gift in
-            if case let .unique(ug) = gift.gift {
-                return seenIds.insert(ug.id).inserted
+        effectiveGifts = effectiveGifts.compactMap { gift -> ProfileGiftsContext.State.StarGift? in
+            guard case let .unique(ug) = gift.gift else {
+                return nil
             }
-            return true
+            let isAlreadyCrafted = ug.attributes.contains(where: {
+                if case let .model(_, _, _, crafted) = $0 { return crafted }
+                return false
+            })
+            guard !isAlreadyCrafted else { return nil }
+            guard seenIds.insert(ug.id).inserted else { return nil }
+            return gift.withCanCraftAt(0)
         }
         let totalCount = max(self.count, Int32(effectiveGifts.count))
         let state = CraftGiftsContext.State(
@@ -4588,7 +4644,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
         guard nonZeroGiftIds.count <= 1 else {
             return .fail(.generic)
         }
-        let baseGiftId: Int64 = matchedFakeItems.first?.baseGiftId ?? 1003
+        let baseGiftId: Int64 = nonZeroGiftIds.first ?? ((matchedFakeItems.first?.baseGiftId != 0 ? matchedFakeItems.first?.baseGiftId : nil) ?? 1003)
         let collectionTitle: String = matchedFakeItems.first?.title ?? matchedFakeItems.first?.patternName ?? "Star Gift"
         let baseSlug: String = {
             if let slug = matchedFakeItems.first?.slug, !slug.isEmpty {
@@ -4612,6 +4668,23 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
             return nil
         }
         let ingredientAttributes = ingredientUniqueGifts.flatMap { $0.attributes }
+        
+        let totalChancePermille: Int32 = min(1000, Int32(references.count) * 250)
+        let roll = Int32.random(in: 1...1000)
+        let isSuccess = roll <= totalChancePermille
+        
+        let wasWearingCraftedIngredient = matchedFakeItems.contains(where: { $0.isWorn })
+        if wasWearingCraftedIngredient {
+            FakeProfileManager.shared.clearWornGift(for: currentPeerId)
+        }
+        
+        var remainingFakeGifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+        remainingFakeGifts.removeAll(where: { matchedFakeItemIds.contains($0.id) })
+        
+        if !isSuccess {
+            FakeProfileManager.shared.setFakeGifts(remainingFakeGifts, for: currentPeerId)
+            return .fail(.craftFailed)
+        }
         
         return account.postbox.transaction { transaction -> [StarGift.UniqueGift.Attribute] in
             if let cached = transaction.retrieveItemCacheEntry(id: giftUpgradesId(giftId: baseGiftId))?.get(CachedStartGiftUpgradeAttributes.self) {
@@ -4730,8 +4803,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     chosenBackdropAttr
                 ]
                 
-                var finalFakeGifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
-                let existingNumbers = Set(finalFakeGifts.compactMap { $0.giftNumber })
+                let existingNumbers = Set(remainingFakeGifts.compactMap { $0.giftNumber })
                 var newNumber: Int32 = Int32.random(in: 1...500)
                 while existingNumbers.contains(newNumber) {
                     newNumber = Int32.random(in: 1...5000)
@@ -4828,9 +4900,8 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     hideOriginalDetails: true
                 )
                 
-                finalFakeGifts.removeAll(where: { matchedFakeItemIds.contains($0.id) })
-                finalFakeGifts.insert(craftedItem, at: 0)
-                FakeProfileManager.shared.setFakeGifts(finalFakeGifts, for: currentPeerId)
+                remainingFakeGifts.insert(craftedItem, at: 0)
+                FakeProfileManager.shared.setFakeGifts(remainingFakeGifts, for: currentPeerId)
                 
                 StarGiftsRealMediaCache.shared.stageUniqueGift(newUniqueGift)
                 
