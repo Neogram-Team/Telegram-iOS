@@ -14,6 +14,43 @@ public struct FakeNftUsername: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+public struct FakeWornGiftStatus: Codable, Equatable, Hashable, Sendable {
+    public var id: Int64
+    public var fileId: Int64
+    public var title: String
+    public var slug: String
+    public var patternFileId: Int64
+    public var innerColor: Int32
+    public var outerColor: Int32
+    public var patternColor: Int32
+    public var textColor: Int32
+    public var rawUniqueGiftData: Data?
+
+    public init(
+        id: Int64,
+        fileId: Int64,
+        title: String,
+        slug: String,
+        patternFileId: Int64,
+        innerColor: Int32,
+        outerColor: Int32,
+        patternColor: Int32,
+        textColor: Int32,
+        rawUniqueGiftData: Data? = nil
+    ) {
+        self.id = id
+        self.fileId = fileId
+        self.title = title
+        self.slug = slug
+        self.patternFileId = patternFileId
+        self.innerColor = innerColor
+        self.outerColor = outerColor
+        self.patternColor = patternColor
+        self.textColor = textColor
+        self.rawUniqueGiftData = rawUniqueGiftData
+    }
+}
+
 public struct FakeStarGiftItem: Codable, Equatable, Hashable, Sendable {
     public var id: UUID
     public var baseGiftId: Int64
@@ -170,6 +207,19 @@ public struct FakeStarGiftItem: Codable, Equatable, Hashable, Sendable {
         try c.encodeIfPresent(self.rawUniqueGiftData, forKey: .rawUniqueGiftData)
         try c.encode(self.hideOriginalDetails, forKey: .hideOriginalDetails)
     }
+
+    public var deterministicId: Int64 {
+        let bytes = self.id.uuid
+        let raw = (UInt64(bytes.0) << 56) |
+                  (UInt64(bytes.1) << 48) |
+                  (UInt64(bytes.2) << 40) |
+                  (UInt64(bytes.3) << 32) |
+                  (UInt64(bytes.4) << 24) |
+                  (UInt64(bytes.5) << 16) |
+                  (UInt64(bytes.6) << 8)  |
+                  UInt64(bytes.7)
+        return Int64(raw & 0x7FFF_FFFF_FFFF_FFFF)
+    }
 }
 
 public struct FakeTransactionItem: Codable, Equatable, Hashable, Sendable {
@@ -218,6 +268,7 @@ public final class FakeProfileManager: @unchecked Sendable {
         static let fakeMainUsername = "FakeProfile_fakeMainUsername"
         static let fakePurchaseDateString = "FakeProfile_fakePurchaseDateString"
         static let fakeEmojiStatusFileId = "FakeProfile_fakeEmojiStatusFileId"
+        static let fakeWornGiftStatus = "FakeProfile_fakeWornGiftStatus"
         static let fakeNameColor = "FakeProfile_fakeNameColor"
         static let fakeProfileColor = "FakeProfile_fakeProfileColor"
         static let isProfileColorReset = "FakeProfile_isProfileColorReset"
@@ -1029,5 +1080,91 @@ public final class FakeProfileManager: @unchecked Sendable {
         defer { self.lock.unlock() }
         let key = self.accountKey(Keys.fakeGiftsOrder, peerId: peerId)
         self.defaults.set(order, forKey: key)
+    }
+
+    // Надевание и ношение уникального NFT-подарка в профиле
+    public func fakeWornGiftStatus(for peerId: Int64? = nil) -> FakeWornGiftStatus? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let effectiveId = peerId ?? self.currentAccountPeerId ?? 0
+        guard effectiveId != 0 else { return nil }
+        let key = self.accountKey(Keys.fakeWornGiftStatus, peerId: effectiveId)
+        if let data = self.defaults.data(forKey: key), let status = try? JSONDecoder().decode(FakeWornGiftStatus.self, from: data) {
+            return status
+        }
+        return nil
+    }
+
+    public func setFakeWornGiftStatus(_ status: FakeWornGiftStatus?, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let effectiveId = peerId ?? self.currentAccountPeerId ?? 0
+        guard effectiveId != 0 else { return }
+        let key = self.accountKey(Keys.fakeWornGiftStatus, peerId: effectiveId)
+        if let status = status, let data = try? JSONEncoder().encode(status) {
+            self.defaults.set(data, forKey: key)
+        } else {
+            self.defaults.removeObject(forKey: key)
+        }
+    }
+
+    public var fakeWornGiftStatus: FakeWornGiftStatus? {
+        get { return self.fakeWornGiftStatus(for: self.currentAccountPeerId) }
+        set { self.setFakeWornGiftStatus(newValue, for: self.currentAccountPeerId) }
+    }
+
+    public func setWornGift(slug: String?, id: Int64?, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let effectiveId = peerId ?? self.currentAccountPeerId ?? 0
+        guard effectiveId != 0 else { return }
+        var gifts = self.fakeGifts(for: effectiveId)
+        for i in 0..<gifts.count {
+            let matchesSlug = slug != nil && !slug!.isEmpty && (gifts[i].slug?.lowercased() == slug!.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug!.lowercased())
+            let matchesId = id != nil && id != 0 && (gifts[i].baseGiftId == id || gifts[i].deterministicId == id)
+            if matchesSlug || matchesId {
+                gifts[i].isWorn = true
+            } else {
+                gifts[i].isWorn = false
+            }
+        }
+        self.setFakeGifts(gifts, for: effectiveId)
+    }
+
+    public func clearWornGift(for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let effectiveId = peerId ?? self.currentAccountPeerId ?? 0
+        guard effectiveId != 0 else { return }
+        var gifts = self.fakeGifts(for: effectiveId)
+        for i in 0..<gifts.count {
+            gifts[i].isWorn = false
+        }
+        self.setFakeGifts(gifts, for: effectiveId)
+        self.setFakeWornGiftStatus(nil, for: effectiveId)
+    }
+
+    // Обновление цены продажи подарка (Stars / TON) локально
+    public func updateGiftResalePrice(slug: String?, id: Int64?, stars: Int64?, ton: Double?, for peerId: Int64? = nil) -> Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let effectiveId = peerId ?? self.currentAccountPeerId ?? 0
+        guard effectiveId != 0 else { return false }
+        var gifts = self.fakeGifts(for: effectiveId)
+        var updated = false
+        for i in 0..<gifts.count {
+            let matchesSlug = slug != nil && !slug!.isEmpty && (gifts[i].slug?.lowercased() == slug!.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug!.lowercased())
+            let matchesId = id != nil && id != 0 && (gifts[i].baseGiftId == id || gifts[i].deterministicId == id)
+            if matchesSlug || matchesId {
+                gifts[i].resellPriceStars = stars
+                gifts[i].resellPriceTon = ton
+                updated = true
+                break
+            }
+        }
+        if updated {
+            self.setFakeGifts(gifts, for: effectiveId)
+        }
+        return updated
     }
 }

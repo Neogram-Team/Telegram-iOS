@@ -47,9 +47,6 @@ private final class FakeProfileSettingsArguments {
     let addUsername: () -> Void
     let deleteUsername: (String) -> Void
     let addNftGiftByLink: () -> Void
-    let addUnupgradedGiftByLink: () -> Void
-    let openGiftStore: () -> Void
-    let addCustomGift: () -> Void
     let deleteGift: (UUID) -> Void
     
     init(
@@ -65,9 +62,6 @@ private final class FakeProfileSettingsArguments {
         addUsername: @escaping () -> Void,
         deleteUsername: @escaping (String) -> Void,
         addNftGiftByLink: @escaping () -> Void,
-        addUnupgradedGiftByLink: @escaping () -> Void,
-        openGiftStore: @escaping () -> Void,
-        addCustomGift: @escaping () -> Void,
         deleteGift: @escaping (UUID) -> Void
     ) {
         self.context = context
@@ -82,9 +76,6 @@ private final class FakeProfileSettingsArguments {
         self.addUsername = addUsername
         self.deleteUsername = deleteUsername
         self.addNftGiftByLink = addNftGiftByLink
-        self.addUnupgradedGiftByLink = addUnupgradedGiftByLink
-        self.openGiftStore = openGiftStore
-        self.addCustomGift = addCustomGift
         self.deleteGift = deleteGift
     }
 }
@@ -122,9 +113,6 @@ private enum FakeProfileEntry: ItemListNodeEntry {
     // 4. Секция: Подарки в профиле
     case giftsHeader(String)
     case addNftGiftAction(String)
-    case addUnupgradedGiftAction(String)
-    case openGiftStoreAction(String)
-    case addCustomGiftAction(String)
     case giftItem(index: Int, id: UUID, title: String, subtitle: String)
     case giftsNotice(String)
     
@@ -136,7 +124,7 @@ private enum FakeProfileEntry: ItemListNodeEntry {
             return FakeProfileSection.profileData.rawValue
         case .nftUsernamesHeader, .addUsernameAction, .nftUsernameItem, .nftUsernamesNotice:
             return FakeProfileSection.nftUsernames.rawValue
-        case .giftsHeader, .addNftGiftAction, .addUnupgradedGiftAction, .openGiftStoreAction, .addCustomGiftAction, .giftItem, .giftsNotice:
+        case .giftsHeader, .addNftGiftAction, .giftItem, .giftsNotice:
             return FakeProfileSection.profileGifts.rawValue
         }
     }
@@ -182,12 +170,6 @@ private enum FakeProfileEntry: ItemListNodeEntry {
             return 4000
         case .addNftGiftAction:
             return 4001
-        case .addUnupgradedGiftAction:
-            return 4002
-        case .openGiftStoreAction:
-            return 4003
-        case .addCustomGiftAction:
-            return 4004
         case let .giftItem(_, id, _, _):
             return 4100 + Int32(abs(id.hashValue % 800))
         case .giftsNotice:
@@ -235,12 +217,6 @@ private enum FakeProfileEntry: ItemListNodeEntry {
         case let (.giftsHeader(t1), .giftsHeader(t2)):
             return t1 == t2
         case let (.addNftGiftAction(t1), .addNftGiftAction(t2)):
-            return t1 == t2
-        case let (.addUnupgradedGiftAction(t1), .addUnupgradedGiftAction(t2)):
-            return t1 == t2
-        case let (.openGiftStoreAction(t1), .openGiftStoreAction(t2)):
-            return t1 == t2
-        case let (.addCustomGiftAction(t1), .addCustomGiftAction(t2)):
             return t1 == t2
         case let (.giftItem(i1, id1, t1, s1), .giftItem(i2, id2, t2, s2)):
             return i1 == i2 && id1 == id2 && t1 == t2 && s1 == s2
@@ -421,42 +397,6 @@ private enum FakeProfileEntry: ItemListNodeEntry {
                 style: .blocks,
                 action: {
                     args.addNftGiftByLink()
-                }
-            )
-        case let .addUnupgradedGiftAction(text):
-            return ItemListActionItem(
-                presentationData: presentationData,
-                title: text,
-                kind: .generic,
-                alignment: .natural,
-                sectionId: self.section,
-                style: .blocks,
-                action: {
-                    args.addUnupgradedGiftByLink()
-                }
-            )
-        case let .openGiftStoreAction(text):
-            return ItemListActionItem(
-                presentationData: presentationData,
-                title: text,
-                kind: .generic,
-                alignment: .natural,
-                sectionId: self.section,
-                style: .blocks,
-                action: {
-                    args.openGiftStore()
-                }
-            )
-        case let .addCustomGiftAction(text):
-            return ItemListActionItem(
-                presentationData: presentationData,
-                title: text,
-                kind: .generic,
-                alignment: .natural,
-                sectionId: self.section,
-                style: .blocks,
-                action: {
-                    args.addCustomGift()
                 }
             )
         case let .giftItem(_, id, title, subtitle):
@@ -675,67 +615,6 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
             
             context.sharedContext.mainWindow?.presentNative(alert)
         },
-        addUnupgradedGiftByLink: {
-            let alert = UIAlertController(
-                title: "Добавить обычный подарок",
-                message: "Введите ссылку или название подарка (для отображения кнопки «Улучшить»):",
-                preferredStyle: .alert
-            )
-            alert.addTextField { tf in
-                tf.placeholder = "Например, Star или https://t.me/nft/star"
-                tf.autocapitalizationType = .none
-                tf.autocorrectionType = .no
-            }
-            alert.addAction(UIAlertAction(title: "Отмена", style: .cancel))
-            alert.addAction(UIAlertAction(title: "Добавить", style: .default, handler: { [weak alert] _ in
-                guard let fields = alert?.textFields, let text = fields.first?.text else { return }
-                let rawSlug = parseGiftSlug(from: text)
-                guard !rawSlug.isEmpty else { return }
-                let (fallbackTitle, fallbackNum) = parseSlugTitleAndNumber(slug: rawSlug)
-                
-                let item = FakeStarGiftItem(
-                    id: UUID(),
-                    baseGiftId: 0,
-                    backdropColorHex: "#5B8BF5",
-                    patternName: fallbackTitle,
-                    giftNumber: fallbackNum,
-                    canTransfer: true,
-                    canResell: true,
-                    ownerPeerId: currentPeerId,
-                    isPinned: false,
-                    isWorn: false,
-                    resellPriceStars: nil,
-                    resellPriceTon: nil,
-                    senderPeerId: nil,
-                    senderName: nil,
-                    sendDate: Int32(Date().timeIntervalSince1970),
-                    canCraft: false,
-                    isUpgraded: false,
-                    canUpgrade: true,
-                    title: fallbackTitle,
-                    slug: rawSlug,
-                    innerColor: nil,
-                    outerColor: nil,
-                    patternColor: nil,
-                    textColor: nil,
-                    upgradeStars: 500
-                )
-                FakeProfileManager.shared.addGift(item, for: currentPeerId)
-                updateState()
-            }))
-            
-            context.sharedContext.mainWindow?.presentNative(alert)
-        },
-        openGiftStore: {
-            let giftsController = context.sharedContext.makePremiumGiftController(context: context, source: .settings(nil), completion: nil)
-            presentControllerImpl?(giftsController, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
-        },
-        addCustomGift: {
-            let constructor = fakeGiftConstructorController(context: context, completion: {
-                updateState()
-            })
-            presentControllerImpl?(constructor, ViewControllerPresentationArguments(presentationAnimation: .modalSheet))
-        },
         deleteGift: { id in
             FakeProfileManager.shared.removeGift(id: id, for: currentPeerId)
             updateState()
@@ -788,9 +667,6 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
         // 4. Секция: Подарки в профиле
         entries.append(.giftsHeader("ПОДАРКИ В ПРОФИЛЕ"))
         entries.append(.addNftGiftAction("Добавить NFT-подарок по ссылке"))
-        entries.append(.addUnupgradedGiftAction("Добавить обычный подарок по ссылке"))
-        entries.append(.openGiftStoreAction("Каталог подарков Telegram"))
-        entries.append(.addCustomGiftAction("Конструктор кастомного подарка"))
         for (index, gift) in manager.fakeGifts(for: currentPeerId).enumerated() {
             let title = "#\(gift.giftNumber) • \(gift.title ?? gift.patternName)"
             let subtitle = gift.isUpgraded ? "NFT (Улучшенный)" : "Обычный (Неулучшенный)"
@@ -800,7 +676,7 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
         
         let controllerState = ItemListControllerState(
             presentationData: ItemListPresentationData(presentationData),
-            title: .text("Neogram"),
+            title: .text("NeoGram"),
             leftNavigationButton: nil,
             rightNavigationButton: nil,
             backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back)

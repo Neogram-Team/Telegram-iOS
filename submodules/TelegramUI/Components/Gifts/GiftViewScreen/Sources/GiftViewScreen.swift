@@ -2339,6 +2339,17 @@ private final class GiftViewSheetContent: CombinedComponent {
             self.inWearPreview = false
             self.updated(transition: .spring(duration: 0.4))
             
+            let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+            let isFake = FakeProfileManager.shared.fakeGifts(for: currentPeerId).contains(where: {
+                $0.slug?.lowercased() == uniqueGift.slug.lowercased() ||
+                "fake-gift-\($0.id.uuidString.lowercased())" == uniqueGift.slug.lowercased() ||
+                $0.baseGiftId == uniqueGift.id || $0.deterministicId == uniqueGift.id
+            })
+            let isVisualPremium = FakeProfileManager.shared.isVisualPremium(for: currentPeerId)
+            if isFake || isVisualPremium {
+                FakeProfileManager.shared.setWornGift(slug: uniqueGift.slug, id: uniqueGift.id, for: currentPeerId)
+            }
+            
             if let arguments = self.subject.arguments, let peerId = arguments.peerId, peerId.namespace == Namespaces.Peer.CloudChannel {
                 let _ = self.context.engine.peers.updatePeerStarGiftStatus(peerId: peerId, starGift: uniqueGift, expirationDate: nil).startStandalone()
             } else {
@@ -2352,6 +2363,9 @@ private final class GiftViewSheetContent: CombinedComponent {
             self.pendingTakeOff = true
             self.pendingWear = false
             self.updated(transition: .spring(duration: 0.4))
+            
+            let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+            FakeProfileManager.shared.clearWornGift(for: currentPeerId)
             
             if let arguments = self.subject.arguments, let peerId = arguments.peerId, peerId.namespace == Namespaces.Peer.CloudChannel {
                 let _ = self.context.engine.peers.updatePeerEmojiStatus(peerId: peerId, fileId: nil, expirationDate: nil).startStandalone()
@@ -4941,7 +4955,14 @@ private final class GiftViewSheetContent: CombinedComponent {
                                                     canWear = false
                                                 }
                                             } else {
-                                                canWear = component.context.isPremium
+                                                let currentPeerId = component.context.account.peerId.id._internalGetInt64Value()
+                                                let isVisualPremium = FakeProfileManager.shared.isVisualPremium(for: currentPeerId)
+                                                let isFake = FakeProfileManager.shared.fakeGifts(for: currentPeerId).contains(where: {
+                $0.slug?.lowercased() == uniqueGift.slug.lowercased() ||
+                "fake-gift-\($0.id.uuidString.lowercased())" == uniqueGift.slug.lowercased() ||
+                $0.baseGiftId == uniqueGift.id || $0.deterministicId == uniqueGift.id
+            })
+                                                canWear = component.context.isPremium || isVisualPremium || isFake
                                             }
                                             let _ = (ApplicationSpecificNotice.getStarGiftWearTips(accountManager: component.context.sharedContext.accountManager)
                                                      |> deliverOnMainQueue).start(next: { [weak state] count in
@@ -5735,7 +5756,11 @@ private final class GiftViewSheetContent: CombinedComponent {
                             ], spacing: 3.0)
                         )
                     )
-                } else if !isChannelGift && !component.context.isPremium {
+                } else if !isChannelGift && !component.context.isPremium && !FakeProfileManager.shared.isVisualPremium(for: component.context.account.peerId.id._internalGetInt64Value()) && !FakeProfileManager.shared.fakeGifts(for: component.context.account.peerId.id._internalGetInt64Value()).contains(where: {
+                    $0.slug?.lowercased() == uniqueGift.slug.lowercased() ||
+                    "fake-gift-\($0.id.uuidString.lowercased())" == uniqueGift.slug.lowercased() ||
+                    $0.baseGiftId == uniqueGift.id || $0.deterministicId == uniqueGift.id
+                }) {
                     canWear = false
                     buttonContent = AnyComponentWithIdentity(
                         id: AnyHashable("wear_premium"),

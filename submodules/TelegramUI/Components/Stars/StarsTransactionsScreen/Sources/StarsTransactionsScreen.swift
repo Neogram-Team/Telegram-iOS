@@ -728,8 +728,29 @@ final class StarsTransactionsScreenComponent: Component {
             contentHeight += descriptionSize.height
             contentHeight += 29.0
             
+            let tonCurrentPeerId = component.context.account.peerId.id._internalGetInt64Value()
+            let fakeTonAvailableNanos = FakeProfileManager.shared.fakeTonBalance(for: tonCurrentPeerId).flatMap { FakeProfileManager.tonToNanos($0) }
+            let effectiveTonAvailable: StarsAmount = {
+                if let fakeTonAvailableNanos {
+                    return StarsAmount(value: fakeTonAvailableNanos, nanos: 0)
+                }
+                return self.revenueState?.balances.availableBalance.amount ?? StarsAmount.zero
+            }()
+            let effectiveTonOverall: StarsAmount = {
+                if let fakeTonAvailableNanos {
+                    return StarsAmount(value: fakeTonAvailableNanos, nanos: 0)
+                }
+                return self.revenueState?.balances.overallRevenue.amount ?? StarsAmount.zero
+            }()
+            let effectiveTonRate: Double = {
+                if let rate = self.revenueState?.usdRate, rate > 0.0 {
+                    return rate
+                }
+                return 5.30
+            }()
+            
             let withdrawAvailable = (self.revenueState?.balances.overallRevenue.amount.value ?? 0) > 0
-            let tonWithdrawAvailable = (self.revenueState?.balances.availableBalance.amount ?? StarsAmount.zero) > StarsAmount.zero
+            let tonWithdrawAvailable = effectiveTonAvailable > StarsAmount.zero
              
             if component.starsContext.ton {
                 let proceedsSize = self.proceedsView.update(
@@ -751,15 +772,15 @@ final class StarsTransactionsScreenComponent: Component {
                                 theme: environment.theme,
                                 dateTimeFormat: environment.dateTimeFormat,
                                 title: environment.strings.Ton_AvailableBalance,
-                                value: self.revenueState?.balances.availableBalance ?? CurrencyAmount(amount: .zero, currency: .ton),
-                                rate: self.revenueState?.usdRate ?? 0.0
+                                value: CurrencyAmount(amount: effectiveTonAvailable, currency: .ton),
+                                rate: effectiveTonRate
                             ))),
                             AnyComponentWithIdentity(id: 1, component: AnyComponent(StarsOverviewItemComponent(
                                 theme: environment.theme,
                                 dateTimeFormat: environment.dateTimeFormat,
                                 title: environment.strings.Ton_LifetimeProceeds,
-                                value: self.revenueState?.balances.overallRevenue ?? CurrencyAmount(amount: .zero, currency: .ton),
-                                rate: self.revenueState?.usdRate ?? 0.0
+                                value: CurrencyAmount(amount: effectiveTonOverall, currency: .ton),
+                                rate: effectiveTonRate
                             )))
                         ],
                         displaySeparators: false
@@ -833,7 +854,7 @@ final class StarsTransactionsScreenComponent: Component {
                                 }
                             }(),
                             currency: component.starsContext.ton ? .ton : .stars,
-                            rate: nil,
+                            rate: component.starsContext.ton ? effectiveTonRate : nil,
                             actionTitle: component.starsContext.ton ? environment.strings.Ton_WithdrawViaFragment : (withdrawAvailable ? environment.strings.Stars_Intro_BuyShort : environment.strings.Stars_Intro_Buy),
                             actionAvailable: (!premiumConfiguration.areStarsDisabled && !premiumConfiguration.isPremiumDisabled) && (!component.starsContext.ton || tonWithdrawAvailable),
                             actionIsEnabled: true,
@@ -1604,7 +1625,7 @@ public final class StarsTransactionsScreen: ViewControllerComponentContainer {
         }
         
         let currentPeerId = context.account.peerId.id._internalGetInt64Value()
-        if FakeProfileManager.shared.fakeTon(for: currentPeerId) > 0 {
+        if FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil || FakeProfileManager.shared.isVisualPremium(for: currentPeerId) {
             let targetTitle = starsContext.ton ? "Звёзды" : "TON"
             self.navigationItem.rightBarButtonItem = UIBarButtonItem(title: targetTitle, style: .plain, target: self, action: #selector(self.switchStarsTon))
         }

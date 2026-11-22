@@ -14,23 +14,50 @@ private final class AccountEmojiStatusRequestDependencyTag: NetworkRequestDepend
     }
 }
 
-private func _internal_setAccountEmojiStatus(account: Account, apiEmojiStatus: Api.EmojiStatus, emojiStatus: PeerEmojiStatus?, files: [TelegramMediaFile], recentFile: TelegramMediaFile?) -> Signal<Never, SetEmojiStatusError> {
+private func _internal_setAccountEmojiStatus(account: Account, apiEmojiStatus: Api.EmojiStatus, emojiStatus: PeerEmojiStatus?, files: [TelegramMediaFile], recentFile: TelegramMediaFile?, rawStarGiftData: Data? = nil) -> Signal<Never, SetEmojiStatusError> {
     let peerId = account.peerId
     let currentPeerId = peerId.id._internalGetInt64Value()
     let postbox = account.postbox
     
-    if FakeProfileManager.shared.isVisualPremium(for: currentPeerId) {
+    let isFakeGift: Bool = {
+        if let emojiStatus, case let .starGift(id, _, _, slug, _, _, _, _, _) = emojiStatus.content {
+            return FakeProfileManager.shared.fakeGifts(for: currentPeerId).contains(where: {
+                $0.slug?.lowercased() == slug.lowercased() ||
+                "fake-gift-\($0.id.uuidString.lowercased())" == slug.lowercased() ||
+                $0.baseGiftId == id || $0.deterministicId == id
+            })
+        }
+        return false
+    }()
+    let hasWornFakeGift = FakeProfileManager.shared.fakeWornGiftStatus(for: currentPeerId) != nil
+    let isFakeOrVisualPremium = FakeProfileManager.shared.isVisualPremium(for: currentPeerId) || isFakeGift || hasWornFakeGift
+    
+    if isFakeOrVisualPremium {
         if let emojiStatus {
             switch emojiStatus.content {
             case let .emoji(fileId):
                 FakeProfileManager.shared.setFakeEmojiStatusFileId(fileId, for: currentPeerId)
-            default:
-                if let fId = files.first?.fileId.id {
-                    FakeProfileManager.shared.setFakeEmojiStatusFileId(fId, for: currentPeerId)
-                }
+                FakeProfileManager.shared.clearWornGift(for: currentPeerId)
+            case let .starGift(id, fileId, title, slug, patternFileId, innerColor, outerColor, patternColor, textColor):
+                FakeProfileManager.shared.setFakeEmojiStatusFileId(fileId, for: currentPeerId)
+                let status = FakeWornGiftStatus(
+                    id: id,
+                    fileId: fileId,
+                    title: title,
+                    slug: slug,
+                    patternFileId: patternFileId,
+                    innerColor: innerColor,
+                    outerColor: outerColor,
+                    patternColor: patternColor,
+                    textColor: textColor,
+                    rawUniqueGiftData: rawStarGiftData
+                )
+                FakeProfileManager.shared.setFakeWornGiftStatus(status, for: currentPeerId)
+                FakeProfileManager.shared.setWornGift(slug: slug, id: id, for: currentPeerId)
             }
         } else {
             FakeProfileManager.shared.setFakeEmojiStatusFileId(nil, for: currentPeerId)
+            FakeProfileManager.shared.clearWornGift(for: currentPeerId)
         }
     }
     
@@ -49,10 +76,14 @@ private func _internal_setAccountEmojiStatus(account: Account, apiEmojiStatus: A
     |> castError(SetEmojiStatusError.self)
     |> ignoreValues
     
+    if isFakeGift || (emojiStatus == nil && hasWornFakeGift) {
+        return applyLocally
+    }
+    
     return account.network.request(Api.functions.account.updateEmojiStatus(emojiStatus: apiEmojiStatus), tag: AccountEmojiStatusRequestDependencyTag())
     |> mapError { _ in SetEmojiStatusError.generic }
     |> `catch` { _ -> Signal<Api.Bool, SetEmojiStatusError> in
-        if FakeProfileManager.shared.isVisualPremium(for: currentPeerId) {
+        if isFakeOrVisualPremium {
             return .single(.boolTrue)
         }
         return .fail(.generic)
@@ -63,7 +94,7 @@ private func _internal_setAccountEmojiStatus(account: Account, apiEmojiStatus: A
         if case .boolTrue = result {
             return applyLocally
         }
-        if FakeProfileManager.shared.isVisualPremium(for: currentPeerId) {
+        if isFakeOrVisualPremium {
             return applyLocally
         }
         return .fail(.generic)
@@ -202,7 +233,8 @@ public extension TelegramEngine {
             }
             let apiEmojiStatus = Api.EmojiStatus.inputEmojiStatusCollectible(.init(flags: flags, collectibleId: starGift.id, until: expirationDate))
             let emojiStatus = PeerEmojiStatus(content: .starGift(id: starGift.id, fileId: file.fileId.id, title: starGift.title, slug: starGift.slug, patternFileId: patternFile.fileId.id, innerColor: innerColor, outerColor: outerColor, patternColor: patternColor, textColor: textColor), expirationDate: expirationDate)
-            return _internal_setAccountEmojiStatus(account: self.account, apiEmojiStatus: apiEmojiStatus, emojiStatus: emojiStatus, files: [file, patternFile], recentFile: nil)
+            let rawData = starGift.serialize()
+            return _internal_setAccountEmojiStatus(account: self.account, apiEmojiStatus: apiEmojiStatus, emojiStatus: emojiStatus, files: [file, patternFile], recentFile: nil, rawStarGiftData: rawData)
         }
 
         public func setStarGiftStatus(starGift: StarGift.UniqueGift, expirationDate: Int32?) -> Signal<Never, NoError> {

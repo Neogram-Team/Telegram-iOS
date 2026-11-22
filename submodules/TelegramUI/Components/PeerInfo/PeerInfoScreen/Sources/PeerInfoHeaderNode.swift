@@ -1115,7 +1115,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         guard let self else {
                             return
                         }
-                        if let uniqueGiftSlug, !self.isSettings {
+                        if let uniqueGiftSlug {
                             self.openUniqueGift?(self.titleStatusIconView, uniqueGiftSlug)
                         } else {
                             self.displayPremiumIntro?(self.titleStatusIconView, currentEmojiStatus, self.emojiStatusFileAndPackTitle.get(), false)
@@ -1167,7 +1167,7 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         guard let self else {
                             return
                         }
-                        if let uniqueGiftSlug, !self.isSettings {
+                        if let uniqueGiftSlug {
                             self.openUniqueGift?(self.titleExpandedStatusIconView, uniqueGiftSlug)
                         } else {
                             self.displayPremiumIntro?(self.titleExpandedStatusIconView, currentEmojiStatus, self.emojiStatusFileAndPackTitle.get(), true)
@@ -1300,7 +1300,18 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             }
             // MARK: Swiftgram
             if title.isEmpty {
-                if case let .user(user) = peer, let phone = user.phone, !SGSimpleSettings.shared.hidePhoneInSettings {
+                let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+                var phoneVal: String?
+                if case let .user(user) = peer {
+                    phoneVal = user.phone
+                    if (self.isSettings || self.isMyProfile) && FakeProfileManager.shared.isFakePhoneEnabled(for: currentPeerId) {
+                        let fake = FakeProfileManager.shared.fakePhone(for: currentPeerId)
+                        if !fake.isEmpty {
+                            phoneVal = fake
+                        }
+                    }
+                }
+                if let phone = phoneVal, !SGSimpleSettings.shared.hidePhoneInSettings {
                     title = formatPhoneNumber(context: self.context, number: phone)
                 } else if let addressName = peer.addressName {
                     title = "@\(addressName)"
@@ -1316,14 +1327,27 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             
             if self.isSettings, case let .user(user) = peer {
                 // MARK: Swiftgram
-                var formattedPhone = formatPhoneNumber(context: self.context, number: user.phone ?? "")
+                let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+                var effectivePhone = user.phone ?? ""
+                if FakeProfileManager.shared.isFakePhoneEnabled(for: currentPeerId) {
+                    let fake = FakeProfileManager.shared.fakePhone(for: currentPeerId)
+                    if !fake.isEmpty {
+                        effectivePhone = fake
+                    }
+                }
+                var formattedPhone = formatPhoneNumber(context: self.context, number: effectivePhone)
                 if !formattedPhone.isEmpty && SGSimpleSettings.shared.hidePhoneInSettings {
                     formattedPhone = ""
                 }
 
                 var subtitle = formattedPhone
 
-                if let mainUsername = user.addressName, !mainUsername.isEmpty {
+                var effectiveUsername = user.addressName
+                if let fakeU = FakeProfileManager.shared.fakeMainUsername(for: currentPeerId), !fakeU.isEmpty {
+                    effectiveUsername = fakeU
+                }
+
+                if let mainUsername = effectiveUsername, !mainUsername.isEmpty {
                     if !subtitle.isEmpty {
                         subtitle = "\(subtitle) • @\(mainUsername)"
                     } else {

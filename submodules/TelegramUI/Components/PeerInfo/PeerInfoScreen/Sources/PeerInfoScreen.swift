@@ -2261,11 +2261,24 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
                 guard let strongSelf = self, let data = strongSelf.data, case let .user(user) = data.peer else {
                     return
                 }
+                let currentPeerId = strongSelf.context.account.peerId.id._internalGetInt64Value()
+                var effectivePhone = user.phone ?? ""
+                if FakeProfileManager.shared.isFakePhoneEnabled(for: currentPeerId) {
+                    let fake = FakeProfileManager.shared.fakePhone(for: currentPeerId)
+                    if !fake.isEmpty {
+                        effectivePhone = fake
+                    }
+                }
+                var effectiveUsername = user.addressName
+                if let fakeU = FakeProfileManager.shared.fakeMainUsername(for: currentPeerId), !fakeU.isEmpty {
+                    effectiveUsername = fakeU
+                }
+
                 var actions: [ContextMenuAction] = []
-                if copyPhone, let phone = user.phone, !phone.isEmpty {
+                if copyPhone, !effectivePhone.isEmpty {
                     actions.append(ContextMenuAction(content: .text(title: strongSelf.presentationData.strings.Settings_CopyPhoneNumber, accessibilityLabel: strongSelf.presentationData.strings.Settings_CopyPhoneNumber), action: { [weak self] in
                         if let strongSelf = self {
-                            UIPasteboard.general.string = formatPhoneNumber(context: strongSelf.context, number: phone)
+                            UIPasteboard.general.string = formatPhoneNumber(context: strongSelf.context, number: effectivePhone)
                             
                             let presentationData = strongSelf.context.sharedContext.currentPresentationData.with { $0 }
                             strongSelf.controller?.present(UndoOverlayController(presentationData: presentationData, content: .copy(text: presentationData.strings.Conversation_PhoneCopied), elevatedLayout: false, animateInAsReplacement: false, action: { _ in return false }), in: .current)
@@ -2273,7 +2286,7 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
                     }))
                 }
                 
-                if copyUsername, let username = user.addressName, !username.isEmpty {
+                if copyUsername, let username = effectiveUsername, !username.isEmpty {
                     actions.append(ContextMenuAction(content: .text(title: strongSelf.presentationData.strings.Settings_CopyUsername, accessibilityLabel: strongSelf.presentationData.strings.Settings_CopyUsername), action: { [weak self] in
                         UIPasteboard.general.string = "@\(username)"
                         
@@ -2517,74 +2530,80 @@ final class PeerInfoScreenNode: ViewControllerTracingNode, PeerInfoScreenNodePro
         }
         
         self.headerNode.openUniqueGift = { [weak self] _, slug in
-            guard let self, let profileGifts = self.data?.profileGiftsContext else {
+            guard let self else {
                 return
             }
-            var found = false
-            if let state = profileGifts.currentState {
-                for gift in state.gifts {
-                    if case let .unique(uniqueGift) = gift.gift, uniqueGift.slug == slug {
-                        found = true
-                        
-                        let controller = GiftViewScreen(
-                            context: self.context,
-                            subject: .profileGift(self.peerId, gift),
-                            profileGiftsContext: profileGifts,
-                            updateSavedToProfile: { [weak profileGifts] reference, added in
-                                guard let profileGifts else {
-                                    return
-                                }
-                                profileGifts.updateStarGiftAddedToProfile(reference: reference, added: added)
-                            },
-                            convertToStars: { [weak profileGifts] reference in
-                                guard let profileGifts else {
-                                    return
-                                }
-                                profileGifts.convertStarGift(reference: reference)
-                            },
-                            dropOriginalDetails: { [weak profileGifts] reference in
-                                guard let profileGifts else {
-                                    return .complete()
-                                }
-                                return profileGifts.dropOriginalDetails(reference: reference)
-                            },
-                            transferGift: { [weak profileGifts] prepaid, reference, peerId in
-                                guard let profileGifts else {
-                                    return .complete()
-                                }
-                                return profileGifts.transferStarGift(prepaid: prepaid, reference: reference, peerId: peerId)
-                            },
-                            upgradeGift: { [weak profileGifts] formId, reference, keepOriginalInfo in
-                                guard let profileGifts else {
-                                    return .never()
-                                }
-                                return profileGifts.upgradeStarGift(formId: formId, reference: reference, keepOriginalInfo: keepOriginalInfo)
-                            },
-                            buyGift: { [weak profileGifts] slug, peerId, price, hideName, text, entities in
-                                guard let profileGifts else {
-                                    return .never()
-                                }
-                                return profileGifts.buyStarGift(slug: slug, peerId: peerId, price: price, hideName: hideName, text: text, entities: entities)
-                            },
-                            shareStory: { [weak self] uniqueGift in
-                                guard let self, let controller = self.controller else {
-                                    return
-                                }
-                                Queue.mainQueue().after(0.15) {
-                                    let shareController = self.context.sharedContext.makeStorySharingScreen(context: self.context, subject: .gift(uniqueGift), parentController: controller)
-                                    controller.push(shareController)
-                                }
-                            }
-                        )
-                        self.controller?.push(controller)
-                        
-                        break
+            if let profileGifts = self.data?.profileGiftsContext, let state = profileGifts.currentState,
+               let gift = state.gifts.first(where: {
+                   if case let .unique(uniqueGift) = $0.gift {
+                       return uniqueGift.slug.lowercased() == slug.lowercased()
+                   }
+                   return false
+               }) {
+                let controller = GiftViewScreen(
+                    context: self.context,
+                    subject: .profileGift(self.peerId, gift),
+                    profileGiftsContext: profileGifts,
+                    updateSavedToProfile: { [weak profileGifts] reference, added in
+                        guard let profileGifts else {
+                            return
+                        }
+                        profileGifts.updateStarGiftAddedToProfile(reference: reference, added: added)
+                    },
+                    convertToStars: { [weak profileGifts] reference in
+                        guard let profileGifts else {
+                            return
+                        }
+                        profileGifts.convertStarGift(reference: reference)
+                    },
+                    dropOriginalDetails: { [weak profileGifts] reference in
+                        guard let profileGifts else {
+                            return .complete()
+                        }
+                        return profileGifts.dropOriginalDetails(reference: reference)
+                    },
+                    transferGift: { [weak profileGifts] prepaid, reference, peerId in
+                        guard let profileGifts else {
+                            return .complete()
+                        }
+                        return profileGifts.transferStarGift(prepaid: prepaid, reference: reference, peerId: peerId)
+                    },
+                    upgradeGift: { [weak profileGifts] formId, reference, keepOriginalInfo in
+                        guard let profileGifts else {
+                            return .never()
+                        }
+                        return profileGifts.upgradeStarGift(formId: formId, reference: reference, keepOriginalInfo: keepOriginalInfo)
+                    },
+                    buyGift: { [weak profileGifts] slug, peerId, price, hideName, text, entities in
+                        guard let profileGifts else {
+                            return .never()
+                        }
+                        return profileGifts.buyStarGift(slug: slug, peerId: peerId, price: price, hideName: hideName, text: text, entities: entities)
+                    },
+                    shareStory: { [weak self] uniqueGift in
+                        guard let self, let controller = self.controller else {
+                            return
+                        }
+                        Queue.mainQueue().after(0.15) {
+                            let shareController = self.context.sharedContext.makeStorySharingScreen(context: self.context, subject: .gift(uniqueGift), parentController: controller)
+                            controller.push(shareController)
+                        }
                     }
+                )
+                self.controller?.push(controller)
+                return
+            }
+            
+            let _ = (self.context.engine.payments.getUniqueStarGift(slug: slug)
+            |> deliverOnMainQueue).start(next: { [weak self] uniqueGift in
+                guard let self else { return }
+                let controller = GiftViewScreen(context: self.context, subject: .uniqueGift(uniqueGift, recipientPeerId: self.peerId))
+                self.controller?.push(controller)
+            }, error: { [weak self] _ in
+                if !slug.hasPrefix("fake-gift-") {
+                    self?.openUrl(url: "https://t.me/nft/\(slug)", concealed: false, external: false)
                 }
-            }
-            if !found {
-                self.openUrl(url: "https://t.me/nft/\(slug)", concealed: false, external: false)
-            }
+            })
         }
         
         self.headerNode.avatarListNode.listContainerNode.currentIndexUpdated = { [weak self] in

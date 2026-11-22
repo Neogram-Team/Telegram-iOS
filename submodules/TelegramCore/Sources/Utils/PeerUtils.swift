@@ -407,19 +407,14 @@ public extension Peer {
     }
     
     var effectiveProfileColor: PeerNameColor? {
+        if let emojiStatus = self.emojiStatus, case let .starGift(_, _, _, _, _, _, outerColor, _, _) = emojiStatus.content {
+            return PeerNameColor.other(outerColor)
+        }
         let peerIdValue = self.id.id._internalGetInt64Value()
         if FakeProfileManager.shared.isVisualPremium(for: peerIdValue) || (FakeProfileManager.shared.isVisualPremium && FakeProfileManager.shared.isCurrentAccountPeer(id: peerIdValue)) {
             if FakeProfileManager.shared.isProfileColorReset(for: peerIdValue) {
                 return nil
             }
-        }
-        switch self.emojiStatus?.content {
-        case let .starGift(_, _, _, _, _, _, outerColor, _, _):
-            return PeerNameColor.other(outerColor)
-        default:
-            break
-        }
-        if FakeProfileManager.shared.isVisualPremium(for: peerIdValue) || (FakeProfileManager.shared.isVisualPremium && FakeProfileManager.shared.isCurrentAccountPeer(id: peerIdValue)) {
             if let colorRaw = FakeProfileManager.shared.fakeProfileColor(for: peerIdValue) {
                 return PeerNameColor(rawValue: colorRaw)
             }
@@ -446,6 +441,23 @@ public extension Peer {
         let peerIdValue = self.id.id._internalGetInt64Value()
         switch self {
         case let user as TelegramUser:
+            let effectivePeerId = FakeProfileManager.shared.isCurrentAccountPeer(id: peerIdValue) ? (FakeProfileManager.shared.currentAccountPeerId ?? peerIdValue) : peerIdValue
+            if let worn = FakeProfileManager.shared.fakeWornGiftStatus(for: effectivePeerId) {
+                return PeerEmojiStatus(
+                    content: .starGift(
+                        id: worn.id,
+                        fileId: worn.fileId,
+                        title: worn.title,
+                        slug: worn.slug,
+                        patternFileId: worn.patternFileId,
+                        innerColor: worn.innerColor,
+                        outerColor: worn.outerColor,
+                        patternColor: worn.patternColor,
+                        textColor: worn.textColor
+                    ),
+                    expirationDate: nil
+                )
+            }
             if FakeProfileManager.shared.isVisualPremium(for: peerIdValue) || (FakeProfileManager.shared.isVisualPremium && FakeProfileManager.shared.isCurrentAccountPeer(id: peerIdValue)) {
                 if let fileId = FakeProfileManager.shared.fakeEmojiStatusFileId(for: peerIdValue) {
                     return PeerEmojiStatus(content: .emoji(fileId: fileId), expirationDate: nil)
@@ -477,6 +489,9 @@ public extension Peer {
     }
     
     var profileBackgroundEmojiId: Int64? {
+        if let emojiStatus = self.emojiStatus, case let .starGift(_, _, _, _, patternFileId, _, _, _, _) = emojiStatus.content {
+            return patternFileId
+        }
         let peerIdValue = self.id.id._internalGetInt64Value()
         if FakeProfileManager.shared.isVisualPremium(for: peerIdValue) || (FakeProfileManager.shared.isVisualPremium && FakeProfileManager.shared.isCurrentAccountPeer(id: peerIdValue)) {
             if FakeProfileManager.shared.isProfileColorReset(for: peerIdValue) {
@@ -484,14 +499,6 @@ public extension Peer {
             }
             if let bgEmojiId = FakeProfileManager.shared.fakeProfileBackgroundEmojiId(for: peerIdValue) {
                 return bgEmojiId
-            }
-        }
-        if let emojiStatus {
-            switch emojiStatus.content {
-            case let .starGift(_, _, _, _, patternFileId, _, _, _, _):
-                return patternFileId
-            default:
-                break
             }
         }
         switch self {

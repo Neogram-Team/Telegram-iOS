@@ -2582,11 +2582,24 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
             }
         }
         
+        let effectiveResellAmounts: [CurrencyAmount]? = {
+            var amounts: [CurrencyAmount] = []
+            if let stars = item.resellPriceStars, stars > 0 {
+                amounts.append(CurrencyAmount(amount: StarsAmount(value: stars, nanos: 0), currency: .stars))
+            }
+            if let ton = item.resellPriceTon, ton > 0 {
+                let tonNanos = FakeProfileManager.tonToNanos(ton)
+                amounts.append(CurrencyAmount(amount: StarsAmount(value: tonNanos, nanos: 0), currency: .ton))
+            }
+            return amounts.isEmpty ? nil : amounts
+        }()
+        let forTonOnly = item.resellPriceTon != nil && (item.resellPriceStars == nil || item.resellPriceStars == 0)
+        
         let uniqueGift = deserializedGift
             .withAttributes(cleanAttributes)
             .withOwner(.peerId(targetPeerId))
-            .withResellAmounts(item.resellPriceStars != nil || item.resellPriceTon != nil ? deserializedGift.resellAmounts : nil)
-            .withResellForTonOnly(deserializedGift.resellForTonOnly)
+            .withResellAmounts(effectiveResellAmounts)
+            .withResellForTonOnly(forTonOnly)
             
         return ProfileGiftsContext.State.StarGift(
             gift: .unique(uniqueGift),
@@ -2656,6 +2669,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         let tonNanos = FakeProfileManager.tonToNanos(ton)
         resellAmounts.append(CurrencyAmount(amount: StarsAmount(value: tonNanos, nanos: 0), currency: .ton))
     }
+    let forTonOnly = item.resellPriceTon != nil && (item.resellPriceStars == nil || item.resellPriceStars == 0)
     
     let uniqueGift = StarGift.UniqueGift(
         id: deterministicId,
@@ -2667,8 +2681,8 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         attributes: fallbackAttributes,
         availability: StarGift.UniqueGift.Availability(issued: 1, total: 1000),
         giftAddress: nil,
-        resellAmounts: resellAmounts,
-        resellForTonOnly: false,
+        resellAmounts: resellAmounts.isEmpty ? nil : resellAmounts,
+        resellForTonOnly: forTonOnly,
         releasedBy: nil,
         valueAmount: 500,
         valueCurrency: "XTR",
@@ -4752,6 +4766,19 @@ func _internal_cachedUniqueStarGift(account: Account, slug: String) -> Signal<St
 }
 
 func _internal_getUniqueStarGift(account: Account, slug: String) -> Signal<StarGift.UniqueGift, GetUniqueStarGiftError> {
+    let currentPeerId = account.peerId.id._internalGetInt64Value()
+    if let worn = FakeProfileManager.shared.fakeWornGiftStatus(for: currentPeerId), worn.slug.lowercased() == slug.lowercased() {
+        if let rawData = worn.rawUniqueGiftData, let decoded = StarGift.UniqueGift.deserialize(from: rawData) {
+            return .single(decoded)
+        }
+    }
+    let gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+    if let matching = gifts.first(where: { $0.slug?.lowercased() == slug.lowercased() || "fake-gift-\($0.id.uuidString.lowercased())" == slug.lowercased() }) {
+        let stateGift = generateSingleFakeStarGift(item: matching, targetPeerId: EnginePeer.Id(currentPeerId))
+        if case let .unique(ug) = stateGift.gift {
+            return .single(ug)
+        }
+    }
     return account.network.request(Api.functions.payments.getUniqueStarGift(slug: slug))
     |> mapError { error -> GetUniqueStarGiftError in
         if error.errorDescription == "STARGIFT_ALREADY_BURNED" {
@@ -4783,6 +4810,14 @@ func _internal_getUniqueStarGift(account: Account, slug: String) -> Signal<StarG
 }
 
 func _internal_getUniqueStarGiftValueInfo(account: Account, slug: String) -> Signal<StarGift.UniqueGift.ValueInfo?, NoError> {
+    let currentPeerId = account.peerId.id._internalGetInt64Value()
+    if let worn = FakeProfileManager.shared.fakeWornGiftStatus(for: currentPeerId), worn.slug.lowercased() == slug.lowercased() {
+        return .single(nil)
+    }
+    let gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+    if gifts.contains(where: { $0.slug?.lowercased() == slug.lowercased() || "fake-gift-\($0.id.uuidString.lowercased())" == slug.lowercased() }) {
+        return .single(nil)
+    }
     return account.network.request(Api.functions.payments.getUniqueStarGiftValueInfo(slug: slug))
     |> map(Optional.init)
     |> `catch` { _ -> Signal<Api.payments.UniqueStarGiftValueInfo?, NoError> in
@@ -5190,31 +5225,41 @@ func _internal_toggleStarGiftsNotifications(account: Account, peerId: EnginePeer
 }
 
 func _internal_updateStarGiftResalePrice(account: Account, reference: StarGiftReference, price: CurrencyAmount?) -> Signal<Never, UpdateStarGiftPriceError> {
-    if case let .slug(slug) = reference, slug.hasPrefix("fake-gift-") {
-        let uuidStr = String(slug.dropFirst("fake-gift-".count))
-        if let uuid = UUID(uuidString: uuidStr) {
-            let currentPeerId = account.peerId.id._internalGetInt64Value()
-            var gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
-            if let index = gifts.firstIndex(where: { $0.id == uuid }) {
-                var gift = gifts[index]
-                if let price {
-                    switch price.currency {
-                    case .stars:
-                        gift.resellPriceStars = price.amount.value
-                        gift.resellPriceTon = nil
-                    case .ton:
-                        gift.resellPriceTon = Double(price.amount.value) / 1_000_000_000.0
-                        gift.resellPriceStars = nil
-                    }
-                } else {
-                    gift.resellPriceStars = nil
-                    gift.resellPriceTon = nil
-                }
-                gifts[index] = gift
-                FakeProfileManager.shared.setFakeGifts(gifts, for: currentPeerId)
-            }
+    let currentPeerId = account.peerId.id._internalGetInt64Value()
+    var priceStars: Int64? = nil
+    var priceTon: Double? = nil
+    if let price {
+        switch price.currency {
+        case .stars:
+            priceStars = price.amount.value
+        case .ton:
+            priceTon = Double(price.amount.value) / 1_000_000_000.0
         }
-        return .complete()
+    }
+    
+    switch reference {
+    case let .slug(slug):
+        if FakeProfileManager.shared.updateGiftResalePrice(slug: slug, id: nil, stars: priceStars, ton: priceTon, for: currentPeerId) {
+            return .complete()
+        }
+        if slug.hasPrefix("fake-gift-") {
+            let uuidStr = String(slug.dropFirst("fake-gift-".count))
+            if let uuid = UUID(uuidString: uuidStr) {
+                var gifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+                if let index = gifts.firstIndex(where: { $0.id == uuid }) {
+                    gifts[index].resellPriceStars = priceStars
+                    gifts[index].resellPriceTon = priceTon
+                    FakeProfileManager.shared.setFakeGifts(gifts, for: currentPeerId)
+                }
+            }
+            return .complete()
+        }
+    case let .peer(_, id):
+        if FakeProfileManager.shared.updateGiftResalePrice(slug: nil, id: id, stars: priceStars, ton: priceTon, for: currentPeerId) {
+            return .complete()
+        }
+    case .message:
+        break
     }
     return account.postbox.transaction { transaction in
         return reference.apiStarGiftReference(transaction: transaction)
