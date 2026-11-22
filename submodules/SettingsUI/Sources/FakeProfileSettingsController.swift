@@ -595,8 +595,6 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
                                 if case let .model(_, _, _, crafted) = $0 { return crafted }; return false
                             })
                             saveGiftWithCraft(uniqueGift, hasCraftChance || hasCraftedModelInPool)
-                        }, error: { _ in
-                            saveGiftWithCraft(uniqueGift, hasCraftChance)
                         }))
                     }
                 }, error: { _ in
