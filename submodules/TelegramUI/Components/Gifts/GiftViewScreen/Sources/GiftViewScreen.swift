@@ -7041,6 +7041,8 @@ public class GiftViewScreen: ViewControllerComponentContainer {
                     default:
                         return nil
                     }
+                } else {
+                    return nil
                 }
             case let .uniqueGift(gift, recipientPeerId):
                 let canCraftDate: Int32? = (gift.craftChancePermille ?? 0) > 0 ? 0 : nil
@@ -7094,6 +7096,7 @@ public class GiftViewScreen: ViewControllerComponentContainer {
             case let .wearPreview(gift, _):
                 return (nil, nil, nil, nil, nil, nil, false, gift, 0, nil, nil, nil, false, false, nil, false, false, false, false, nil, nil, nil, nil, nil, nil, nil, nil, false, nil, nil, nil, nil)
             }
+            return nil
         }
     }
     
