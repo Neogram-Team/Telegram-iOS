@@ -2783,7 +2783,7 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
     }
     let forTonOnly = item.resellPriceTon != nil && (item.resellPriceStars == nil || item.resellPriceStars == 0)
     
-    let uniqueGift = StarGift.UniqueGift(
+    let initialUniqueGift = StarGift.UniqueGift(
         id: deterministicId,
         giftId: item.baseGiftId != 0 ? item.baseGiftId : deterministicId,
         title: item.title ?? item.patternName,
@@ -2804,10 +2804,11 @@ private func generateSingleFakeStarGift(item: FakeStarGiftItem, targetPeerId: En
         peerColor: nil,
         hostPeerId: nil,
         minOfferStars: 100,
-        craftChancePermille: (crafted || !isStarGiftCraftable(gift: uniqueGift)) ? nil : 250
+        craftChancePermille: nil
     )
     
-    let isUniqueCraftable = !crafted && isStarGiftCraftable(gift: uniqueGift)
+    let isUniqueCraftable = !crafted && isStarGiftCraftable(gift: initialUniqueGift)
+    let uniqueGift = initialUniqueGift.withCraftChancePermille(isUniqueCraftable ? 250 : nil)
     
     return ProfileGiftsContext.State.StarGift(
         gift: .unique(uniqueGift),
