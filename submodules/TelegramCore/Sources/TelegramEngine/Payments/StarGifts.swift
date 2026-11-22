@@ -1769,7 +1769,7 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
         let isTon = price.currency == .ton
         let hasFakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil
         let hasFakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil
-        let hasFakeBalance = isTon ? (hasFakeTon || hasFakeStars) : (hasFakeStars || hasFakeTon)
+        let hasFakeBalance = isTon ? hasFakeTon : hasFakeStars
         
         if hasFakeBalance {
             let targetPeerIdInt = peerId.id._internalGetInt64Value()
@@ -1778,19 +1778,14 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
                 return .complete()
             }
             
-            if isTon && hasFakeTon {
+            if isTon {
                 guard FakeProfileManager.shared.deductFakeTon(nanos: price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
                     return .fail(.generic)
                 }
-            } else if !isTon && hasFakeStars {
+            } else {
                 guard FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug) else {
                     return .fail(.generic)
                 }
-            } else if hasFakeTon {
-                let tonNanos = FakeProfileManager.tonToNanos(Double(price.amount.value) / 100.0)
-                let _ = FakeProfileManager.shared.deductFakeTon(nanos: max(1_000_000_000, tonNanos), for: currentPeerId, title: "Покупка подарка", subtitle: slug)
-            } else if hasFakeStars {
-                let _ = FakeProfileManager.shared.deductFakeStars(price.amount.value, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
             }
             
             let saveBoughtGift: (StarGift.UniqueGift) -> Signal<Never, BuyStarGiftError> = { uniqueGift in

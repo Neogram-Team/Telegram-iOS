@@ -547,7 +547,8 @@ private final class GiftViewSheetContent: CombinedComponent {
                     }
                     
                     if let _ = arguments.resellAmounts, !isOwn {
-                        self.buyFormDisposable = (context.engine.payments.fetchBotPaymentForm(source: .starGiftResale(slug: gift.slug, toPeerId: context.account.peerId, ton: gift.resellForTonOnly, hideName: true, text: nil, entities: nil), themeParams: nil)
+                        let isTonResale = gift.resellForTonOnly || gift.resellAmounts?.contains(where: { $0.currency == .ton }) == true
+                        self.buyFormDisposable = (context.engine.payments.fetchBotPaymentForm(source: .starGiftResale(slug: gift.slug, toPeerId: context.account.peerId, ton: isTonResale, hideName: true, text: nil, entities: nil), themeParams: nil)
                         |> deliverOnMainQueue).start(next: { [weak self] paymentForm in
                             guard let self else {
                                 return
@@ -1720,7 +1721,10 @@ private final class GiftViewSheetContent: CombinedComponent {
                 if let peerId = arguments.peerId, peerId == self.context.account.peerId {
                     return true
                 }
-                if controller.profileGiftsContext != nil || controller.togglePinnedToTop != nil {
+                if let profileGiftsContext = controller.profileGiftsContext, profileGiftsContext.peerId == self.context.account.peerId {
+                    return true
+                }
+                if controller.togglePinnedToTop != nil {
                     return true
                 }
                 if gift.owner?.peerId == self.context.account.peerId {
@@ -2201,7 +2205,10 @@ private final class GiftViewSheetContent: CombinedComponent {
                     if let peerId = arguments.peerId, peerId == self.context.account.peerId {
                         return true
                     }
-                    if controller.profileGiftsContext != nil || controller.togglePinnedToTop != nil {
+                    if let profileGiftsContext = controller.profileGiftsContext, profileGiftsContext.peerId == self.context.account.peerId {
+                        return true
+                    }
+                    if controller.togglePinnedToTop != nil {
                         return true
                     }
                     if gift.owner?.peerId == self.context.account.peerId {
@@ -2497,7 +2504,7 @@ private final class GiftViewSheetContent: CombinedComponent {
             let isTon = (effectivePrice?.currency == .ton) || uniqueGift.resellForTonOnly
             let hasFakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil
             let hasFakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil
-            let hasFakeBalance = isTon ? (hasFakeTon || hasFakeStars) : (hasFakeStars || hasFakeTon)
+            let hasFakeBalance = isTon ? hasFakeTon : hasFakeStars
             
             if !hasFakeBalance {
                 if let resellTooEarlyTimestamp = self.resellTooEarlyTimestamp {
@@ -2509,18 +2516,6 @@ private final class GiftViewSheetContent: CombinedComponent {
                         actions: [
                             TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
                         ],
-                        parseMarkdown: true
-                    )
-                    controller.present(alertController, in: .window(.root))
-                    return
-                }
-                
-                guard let _ = self.buyForm else {
-                    let alertController = textAlertController(
-                        context: context,
-                        title: nil,
-                        text: presentationData.strings.Gift_Buy_ErrorUnknown,
-                        actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})],
                         parseMarkdown: true
                     )
                     controller.present(alertController, in: .window(.root))
@@ -3647,9 +3642,9 @@ private final class GiftViewSheetContent: CombinedComponent {
             var selling = false
             if let uniqueGift {
                 if uniqueGift.resellForTonOnly {
-                    resellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == .ton })
+                    resellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == .ton }) ?? uniqueGift.resellAmounts?.first
                 } else {
-                    resellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == .stars })
+                    resellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == .stars }) ?? uniqueGift.resellAmounts?.first
                 }
             }
             
@@ -6289,7 +6284,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                 let isFromMyProfile = !isStoreScreen && (
                     isMyOwnedUniqueGift ||
                     component.subject.arguments?.peerId == component.context.account.peerId ||
-                    giftScreen?.profileGiftsContext != nil ||
+                    (giftScreen?.profileGiftsContext?.peerId == component.context.account.peerId) ||
                     giftScreen?.togglePinnedToTop != nil
                 )
                 let isAlreadyCrafted = uniqueGift.attributes.contains(where: {

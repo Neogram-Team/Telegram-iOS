@@ -59,7 +59,7 @@ public func buyStarGiftImpl(
         let isTon = finalPrice.currency == .ton
         let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
         let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
-        let hasFakeBalanceForCurrency = isTon ? (fakeTon != nil || fakeStars != nil) : (fakeStars != nil || fakeTon != nil)
+        let hasFakeBalanceForCurrency = isTon ? (fakeTon != nil) : (fakeStars != nil)
 
         let proceed: () -> Void = {
             updateProgress(true)
@@ -89,7 +89,15 @@ public func buyStarGiftImpl(
                 HapticFeedback().error()
                 
                 switch error {
-                case .serverProvided:
+                case let .serverProvided(text):
+                    let alertController = textAlertController(
+                        context: context,
+                        title: nil,
+                        text: text,
+                        actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})],
+                        parseMarkdown: true
+                    )
+                    controller.present(alertController, in: .window(.root))
                     return
                 case let .priceChanged(newPrice):
                     let errorTitle = presentationData.strings.Gift_Buy_ErrorPriceChanged_Title
@@ -151,7 +159,8 @@ public func buyStarGiftImpl(
                 beforeCompletion()
                 completion()
 
-                Queue.mainQueue().after(0.5) {
+                Queue.mainQueue().after(0.5) { [weak context] in
+                    guard let context else { return }
                     switch finalPrice.currency {
                     case .stars:
                         context.starsContext?.load(force: true)
@@ -186,6 +195,10 @@ public func buyStarGiftImpl(
                                 }
                                 updateProgress(true)
                                 
+                                if hasFakeBalanceForCurrency {
+                                    let current = FakeProfileManager.shared.fakeStars(for: currentPeerId)
+                                    FakeProfileManager.shared.setFakeStars(current + stars, for: currentPeerId)
+                                }
                                 starsContext.add(balance: StarsAmount(value: stars, nanos: 0))
                                 let _ = (starsContext.onUpdate
                                 |> take(1)
