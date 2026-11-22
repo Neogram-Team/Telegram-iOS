@@ -6242,8 +6242,9 @@ private final class GiftViewSheetContent: CombinedComponent {
             
             var rightControlItems: [GlassControlGroupComponent.Item] = []
             if let uniqueGift, !showWearPreview, !isDismantled {
-                let isStoreView = (controller() as? GiftViewScreen)?.buyGift != nil
-                let isFromMyProfile = !isStoreView && (controller()?.togglePinnedToTop != nil || component.subject.arguments?.peerId == component.context.account.peerId || isMyOwnedUniqueGift)
+                let giftScreen = controller() as? GiftViewScreen
+                let isStoreView = giftScreen?.buyGift != nil
+                let isFromMyProfile = !isStoreView && (giftScreen?.togglePinnedToTop != nil || component.subject.arguments?.peerId == component.context.account.peerId || isMyOwnedUniqueGift)
                 let isAlreadyCrafted = uniqueGift.attributes.contains(where: {
                     if case let .model(_, _, _, crafted) = $0 { return crafted }
                     return false
