@@ -4315,8 +4315,7 @@ private final class CraftGiftsContextImpl {
     private let giftId: Int64
 
     private let disposable = MetaDisposable()
-    private let craftDisposable = MetaDisposable()
-    private var limit: Int32
+    private let limit: Int32
 
     private var gifts: [ProfileGiftsContext.State.StarGift] = []
     private var count: Int32 = 0
@@ -4344,7 +4343,6 @@ private final class CraftGiftsContextImpl {
 
     deinit {
         self.disposable.dispose()
-        self.craftDisposable.dispose()
     }
 
     func craft(references: [StarGiftReference]) -> Signal<ProfileGiftsContext.State.StarGift, CraftStarGiftError> {
@@ -4569,7 +4567,7 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                 continue
             }
         case let .peer(_, id):
-            if let item = currentFakeGifts.first(where: { $0.deterministicId == id || $0.baseGiftId == id }) {
+            if let item = currentFakeGifts.first(where: { $0.deterministicId == id }) {
                 if matchedFakeItemIds.insert(item.id).inserted {
                     matchedFakeItems.append(item)
                 }
@@ -4583,8 +4581,11 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
     let isLocalCraft = !matchedFakeItemIds.isEmpty
     
     if isLocalCraft {
-        let giftIds = Set(matchedFakeItems.map { $0.baseGiftId })
-        guard giftIds.count <= 1 else {
+        guard matchedFakeItems.count == references.count else {
+            return .fail(.generic)
+        }
+        let nonZeroGiftIds = Set(matchedFakeItems.map { $0.baseGiftId }.filter { $0 != 0 })
+        guard nonZeroGiftIds.count <= 1 else {
             return .fail(.generic)
         }
         let baseGiftId: Int64 = matchedFakeItems.first?.baseGiftId ?? 1003
@@ -4729,20 +4730,25 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     chosenBackdropAttr
                 ]
                 
-                let newNumber: Int32 = Int32.random(in: 1...500)
+                var finalFakeGifts = FakeProfileManager.shared.fakeGifts(for: currentPeerId)
+                let existingNumbers = Set(finalFakeGifts.compactMap { $0.giftNumber })
+                var newNumber: Int32 = Int32.random(in: 1...500)
+                while existingNumbers.contains(newNumber) {
+                    newNumber = Int32.random(in: 1...5000)
+                }
                 let newUuid = UUID()
                 let newSlug = "\(baseSlug)-\(newNumber)"
                 
                 let bytes = newUuid.uuid
-                let raw = (UInt64(bytes.0) << 56) |
-                          (UInt64(bytes.1) << 48) |
-                          (UInt64(bytes.2) << 40) |
-                          (UInt64(bytes.3) << 32) |
-                          (UInt64(bytes.4) << 24) |
-                          (UInt64(bytes.5) << 16) |
-                          (UInt64(bytes.6) << 8)  |
-                          UInt64(bytes.7)
-                let newDeterministicId = Int64(raw & 0x7FFF_FFFF_FFFF_FFFF)
+                var raw: UInt64 = UInt64(bytes.0) << 56
+                raw |= UInt64(bytes.1) << 48
+                raw |= UInt64(bytes.2) << 40
+                raw |= UInt64(bytes.3) << 32
+                raw |= UInt64(bytes.4) << 24
+                raw |= UInt64(bytes.5) << 16
+                raw |= UInt64(bytes.6) << 8
+                raw |= UInt64(bytes.7)
+                let newDeterministicId: Int64 = Int64(raw & 0x7FFF_FFFF_FFFF_FFFF)
                 
                 let totalIssued: Int32 = ingredientUniqueGifts.first?.availability.total ?? 1000
                 let newUniqueGift = StarGift.UniqueGift(
@@ -4822,7 +4828,6 @@ func _internal_craftStarGift(account: Account, references: [StarGiftReference]) 
                     hideOriginalDetails: true
                 )
                 
-                var finalFakeGifts = currentFakeGifts
                 finalFakeGifts.removeAll(where: { matchedFakeItemIds.contains($0.id) })
                 finalFakeGifts.insert(craftedItem, at: 0)
                 FakeProfileManager.shared.setFakeGifts(finalFakeGifts, for: currentPeerId)
