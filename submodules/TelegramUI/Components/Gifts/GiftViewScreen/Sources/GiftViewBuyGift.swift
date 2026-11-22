@@ -56,7 +56,6 @@ public func buyStarGiftImpl(
         }
         
         let currentPeerId = context.account.peerId.id._internalGetInt64Value()
-        let isTon = finalPrice.currency == .ton
         let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
         let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
         let hasAnyFakeBalance = (fakeTon != nil) || (fakeStars != nil)
