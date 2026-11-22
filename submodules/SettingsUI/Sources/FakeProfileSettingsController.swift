@@ -432,8 +432,6 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
         statePromise.set(stateValue.with { $0 })
     }
     
-    var presentControllerImpl: ((ViewController, ViewControllerPresentationArguments?) -> Void)?
-    
     let arguments = FakeProfileSettingsArguments(
         context: context,
         updateVisualPremium: { value in
@@ -694,8 +692,5 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
     }
     
     let controller = ItemListController(context: context, state: signal)
-    presentControllerImpl = { [weak controller] c, a in
-        controller?.present(c, in: PresentationContextType.window(PresentationSurfaceLevel.root), with: a)
-    }
     return controller
 }
