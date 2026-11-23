@@ -27,9 +27,13 @@ public func buyStarGiftImpl(
 ) {
     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                     
-    let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, @escaping () -> Void) -> Void = { currency, message, beforeCompletion in
+    let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, () -> Void) -> Void = { currency, message, beforeCompletion in
+        let currentPeerId = context.account.peerId.id._internalGetInt64Value()
+        let hasAnyFakeBalance = (FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil) || (FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil)
+
         let effectiveResellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == currency })
             ?? (acceptedPrice?.currency == currency ? acceptedPrice : nil)
+            ?? (hasAnyFakeBalance ? (currency == .ton ? CurrencyAmount(amount: StarsAmount(value: 1_000_000_000, nanos: 0), currency: .ton) : CurrencyAmount(amount: StarsAmount(value: 100, nanos: 0), currency: .stars)) : nil)
             ?? uniqueGift.resellAmounts?.first
         guard let resellAmount = effectiveResellAmount else {
             guard let controller = getController() else {
@@ -54,20 +58,13 @@ public func buyStarGiftImpl(
         } else {
             finalPrice = resellAmount
         }
-        
-        let currentPeerId = context.account.peerId.id._internalGetInt64Value()
-        let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
-        let fakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId)
-        let hasAnyFakeBalance = (fakeTon != nil) || (fakeStars != nil)
 
         let proceed: () -> Void = {
             updateProgress(true)
-            if hasAnyFakeBalance {
-                StarGiftsRealMediaCache.shared.stageUniqueGift(uniqueGift)
-            }
+            StarGiftsRealMediaCache.shared.stageUniqueGift(uniqueGift)
             
             let buyGiftImpl: ((String, EnginePeer.Id, CurrencyAmount?, Bool, String?, [MessageTextEntity]?) -> Signal<Never, BuyStarGiftError>)
-            if !hasAnyFakeBalance, let buyGift {
+            if let buyGift {
                 buyGiftImpl = { slug, peerId, price, hideName, text, entities in
                     return buyGift(slug, peerId, price, hideName, text, entities)
                 }
@@ -79,11 +76,12 @@ public func buyStarGiftImpl(
             
             let _ = (buyGiftImpl(uniqueGift.slug, recipientPeerId, finalPrice, message.hideName, message.text, message.entities)
             |> deliverOnMainQueue).start(error: { error in
+                beforeCompletion()
+                updateProgress(false)
+                
                 guard let controller = getController() else {
                     return
                 }
-                beforeCompletion()
-                updateProgress(false)
                 
                 HapticFeedback().error()
                 
@@ -261,10 +259,21 @@ public func buyStarGiftImpl(
                 return
             }
             let presentConfirmation: (GiftMessageScreen.Result, GiftMessageScreen?) -> Void = { message, messageController in
+                let currentPeerId = context.account.peerId.id._internalGetInt64Value()
+                let hasAnyFakeBalance = (FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil) || (FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil)
+                let effectiveUniqueGift: StarGift.UniqueGift = {
+                    if (uniqueGift.resellAmounts == nil || uniqueGift.resellAmounts?.isEmpty == true) && hasAnyFakeBalance {
+                        return uniqueGift.withResellAmounts([
+                            CurrencyAmount(amount: StarsAmount(value: 100, nanos: 0), currency: .stars),
+                            CurrencyAmount(amount: StarsAmount(value: 1_000_000_000, nanos: 0), currency: .ton)
+                        ])
+                    }
+                    return uniqueGift
+                }()
                 var dismissImpl: (() -> Void)?
                 let alertController = giftPurchaseAlertController(
                     context: context,
-                    gift: uniqueGift,
+                    gift: effectiveUniqueGift,
                     showAttributes: showAttributes,
                     peer: peer,
                     animateBalanceOverlay: showAttributes,

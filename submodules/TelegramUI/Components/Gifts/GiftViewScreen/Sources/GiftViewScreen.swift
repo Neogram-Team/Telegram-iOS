@@ -2494,10 +2494,7 @@ private final class GiftViewSheetContent: CombinedComponent {
                 ?? (uniqueGift.resellForTonOnly ? uniqueGift.resellAmounts?.first(where: { $0.currency == .ton }) : nil)
                 ?? uniqueGift.resellAmounts?.first(where: { $0.currency == .stars })
                 ?? uniqueGift.resellAmounts?.first
-            let isTon = (effectivePrice?.currency == .ton) || uniqueGift.resellForTonOnly
-            let hasFakeTon = FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil
-            let hasFakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil
-            let hasFakeBalance = isTon ? hasFakeTon : hasFakeStars
+            let hasFakeBalance = (FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil) || (FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil)
             
             if !hasFakeBalance {
                 if let resellTooEarlyTimestamp = self.resellTooEarlyTimestamp {
