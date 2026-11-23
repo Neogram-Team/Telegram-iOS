@@ -27,7 +27,7 @@ public func buyStarGiftImpl(
 ) {
     let presentationData = context.sharedContext.currentPresentationData.with { $0 }
                     
-    let action: (CurrencyAmount.Currency, GiftMessageScreen.Result, () -> Void) -> Void = { currency, message, beforeCompletion in
+    func action(_ currency: CurrencyAmount.Currency, _ message: GiftMessageScreen.Result, _ beforeCompletion: @escaping () -> Void) {
         let currentPeerId = context.account.peerId.id._internalGetInt64Value()
         let hasAnyFakeBalance = (FakeProfileManager.shared.fakeTonBalance(for: currentPeerId) != nil) || (FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId) != nil)
 
@@ -59,7 +59,7 @@ public func buyStarGiftImpl(
             finalPrice = resellAmount
         }
 
-        let proceed: () -> Void = {
+        func proceed() {
             updateProgress(true)
             StarGiftsRealMediaCache.shared.stageUniqueGift(uniqueGift)
             
