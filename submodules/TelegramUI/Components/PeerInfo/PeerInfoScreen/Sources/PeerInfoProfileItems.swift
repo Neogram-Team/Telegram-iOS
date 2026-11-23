@@ -316,7 +316,7 @@ func infoItems(
                     balanceAmount: amount,
                     currency: currency,
                     walletAddress: walletAddress,
-                    cardholderName: user.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                    cardholderName: EnginePeer(user).displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
                 )
                 controller.present(cardController, in: .window(.root))
             }
