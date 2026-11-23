@@ -33,8 +33,8 @@ public func buyStarGiftImpl(
 
         let effectiveResellAmount = uniqueGift.resellAmounts?.first(where: { $0.currency == currency })
             ?? (acceptedPrice?.currency == currency ? acceptedPrice : nil)
-            ?? (hasAnyFakeBalance ? (currency == .ton ? CurrencyAmount(amount: StarsAmount(value: 1_000_000_000, nanos: 0), currency: .ton) : CurrencyAmount(amount: StarsAmount(value: 100, nanos: 0), currency: .stars)) : nil)
             ?? uniqueGift.resellAmounts?.first
+            ?? (hasAnyFakeBalance ? (currency == .ton ? CurrencyAmount(amount: StarsAmount(value: 1_000_000_000, nanos: 0), currency: .ton) : CurrencyAmount(amount: StarsAmount(value: 100, nanos: 0), currency: .stars)) : nil)
         guard let resellAmount = effectiveResellAmount else {
             guard let controller = getController() else {
                 return
@@ -148,8 +148,20 @@ public func buyStarGiftImpl(
                     )
                     controller.present(alertController, in: .window(.root))
                 default:
-                    let alertController = textAlertController(context: context, title: nil, text: presentationData.strings.Gift_Buy_ErrorUnknown, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})], parseMarkdown: true)
-                    controller.present(alertController, in: .window(.root))
+                    beforeCompletion()
+                    if hasAnyFakeBalance {
+                        completion()
+                    } else {
+                        let alertController = textAlertController(
+                            context: context,
+                            title: nil,
+                            text: presentationData.strings.Gift_Buy_ErrorUnknown,
+                            actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})],
+                            parseMarkdown: true
+                        )
+                        controller.present(alertController, in: .window(.root))
+                    }
+                    return
                 }
             },
             completed: {

@@ -44,6 +44,15 @@ private final class FakeProfileSettingsArguments {
     let updateFakePhone: (String) -> Void
     let updateFakePhonePriceTon: (Double) -> Void
     let updatePurchaseDate: (String?) -> Void
+    let updatePublicBalanceEnabled: (Bool) -> Void
+    let updatePublicBalanceAmount: (Double?) -> Void
+    let updatePublicBalanceCurrency: (String) -> Void
+    let updatePublicWalletAddress: (String) -> Void
+    let updateOrganizationVerificationEnabled: (Bool) -> Void
+    let updateOrganizationName: (String) -> Void
+    let updateOrganizationDescription: (String) -> Void
+    let updateRatingEnabled: (Bool) -> Void
+    let updateRatingPoints: (Int64?) -> Void
     let addUsername: () -> Void
     let deleteUsername: (String) -> Void
     let addNftGiftByLink: () -> Void
@@ -59,6 +68,15 @@ private final class FakeProfileSettingsArguments {
         updateFakePhone: @escaping (String) -> Void,
         updateFakePhonePriceTon: @escaping (Double) -> Void,
         updatePurchaseDate: @escaping (String?) -> Void,
+        updatePublicBalanceEnabled: @escaping (Bool) -> Void,
+        updatePublicBalanceAmount: @escaping (Double?) -> Void,
+        updatePublicBalanceCurrency: @escaping (String) -> Void,
+        updatePublicWalletAddress: @escaping (String) -> Void,
+        updateOrganizationVerificationEnabled: @escaping (Bool) -> Void,
+        updateOrganizationName: @escaping (String) -> Void,
+        updateOrganizationDescription: @escaping (String) -> Void,
+        updateRatingEnabled: @escaping (Bool) -> Void,
+        updateRatingPoints: @escaping (Int64?) -> Void,
         addUsername: @escaping () -> Void,
         deleteUsername: @escaping (String) -> Void,
         addNftGiftByLink: @escaping () -> Void,
@@ -73,6 +91,15 @@ private final class FakeProfileSettingsArguments {
         self.updateFakePhone = updateFakePhone
         self.updateFakePhonePriceTon = updateFakePhonePriceTon
         self.updatePurchaseDate = updatePurchaseDate
+        self.updatePublicBalanceEnabled = updatePublicBalanceEnabled
+        self.updatePublicBalanceAmount = updatePublicBalanceAmount
+        self.updatePublicBalanceCurrency = updatePublicBalanceCurrency
+        self.updatePublicWalletAddress = updatePublicWalletAddress
+        self.updateOrganizationVerificationEnabled = updateOrganizationVerificationEnabled
+        self.updateOrganizationName = updateOrganizationName
+        self.updateOrganizationDescription = updateOrganizationDescription
+        self.updateRatingEnabled = updateRatingEnabled
+        self.updateRatingPoints = updateRatingPoints
         self.addUsername = addUsername
         self.deleteUsername = deleteUsername
         self.addNftGiftByLink = addNftGiftByLink
@@ -82,6 +109,9 @@ private final class FakeProfileSettingsArguments {
 
 private enum FakeProfileSection: Int32 {
     case premiumAndStars
+    case publicBalanceAndCard
+    case organizationVerification
+    case starRating
     case profileData
     case nftUsernames
     case profileGifts
@@ -95,7 +125,28 @@ private enum FakeProfileEntry: ItemListNodeEntry {
     case tonBalanceInput(String, String)
     case premiumNotice(String)
     
-    // 2. Секция: Данные профиля (Номер, Юзернейм, Fragment)
+    // 2. Секция: Публичный баланс TON / GRAM и 3D-карта
+    case publicBalanceHeader(String)
+    case publicBalanceToggle(Bool)
+    case publicBalanceCurrencyInput(String, String)
+    case publicBalanceAmountInput(String, String)
+    case publicWalletAddressInput(String, String)
+    case publicBalanceNotice(String)
+    
+    // 3. Секция: Верификация от организации
+    case organizationVerificationHeader(String)
+    case organizationVerificationToggle(Bool)
+    case organizationNameInput(String, String)
+    case organizationDescriptionInput(String, String)
+    case organizationVerificationNotice(String)
+    
+    // 4. Секция: Рейтинг по очкам
+    case starRatingHeader(String)
+    case starRatingToggle(Bool)
+    case starRatingPointsInput(String, String)
+    case starRatingNotice(String)
+    
+    // 5. Секция: Данные профиля (Номер, Юзернейм, Fragment)
     case profileDataHeader(String)
     case fakeMainUsernameInput(String, String)
     case fakePhoneToggle(Bool)
@@ -104,13 +155,13 @@ private enum FakeProfileEntry: ItemListNodeEntry {
     case fakePurchaseDateInput(String, String)
     case profileDataNotice(String)
     
-    // 3. Секция: NFT-юзернеймы
+    // 6. Секция: NFT-юзернеймы
     case nftUsernamesHeader(String)
     case addUsernameAction(String)
     case nftUsernameItem(index: Int, username: String, priceTon: Double)
     case nftUsernamesNotice(String)
     
-    // 4. Секция: Подарки в профиле
+    // 7. Секция: Подарки в профиле
     case giftsHeader(String)
     case addNftGiftAction(String)
     case giftItem(index: Int, id: UUID, title: String, subtitle: String)
@@ -120,6 +171,12 @@ private enum FakeProfileEntry: ItemListNodeEntry {
         switch self {
         case .premiumHeader, .visualPremiumToggle, .starsBalanceInput, .tonBalanceInput, .premiumNotice:
             return FakeProfileSection.premiumAndStars.rawValue
+        case .publicBalanceHeader, .publicBalanceToggle, .publicBalanceCurrencyInput, .publicBalanceAmountInput, .publicWalletAddressInput, .publicBalanceNotice:
+            return FakeProfileSection.publicBalanceAndCard.rawValue
+        case .organizationVerificationHeader, .organizationVerificationToggle, .organizationNameInput, .organizationDescriptionInput, .organizationVerificationNotice:
+            return FakeProfileSection.organizationVerification.rawValue
+        case .starRatingHeader, .starRatingToggle, .starRatingPointsInput, .starRatingNotice:
+            return FakeProfileSection.starRating.rawValue
         case .profileDataHeader, .fakeMainUsernameInput, .fakePhoneToggle, .fakePhoneInput, .fakePhonePriceInput, .fakePurchaseDateInput, .profileDataNotice:
             return FakeProfileSection.profileData.rawValue
         case .nftUsernamesHeader, .addUsernameAction, .nftUsernameItem, .nftUsernamesNotice:
@@ -142,6 +199,39 @@ private enum FakeProfileEntry: ItemListNodeEntry {
         case .premiumNotice:
             return 1004
             
+        case .publicBalanceHeader:
+            return 1500
+        case .publicBalanceToggle:
+            return 1501
+        case .publicBalanceCurrencyInput:
+            return 1502
+        case .publicBalanceAmountInput:
+            return 1503
+        case .publicWalletAddressInput:
+            return 1504
+        case .publicBalanceNotice:
+            return 1505
+            
+        case .organizationVerificationHeader:
+            return 1600
+        case .organizationVerificationToggle:
+            return 1601
+        case .organizationNameInput:
+            return 1602
+        case .organizationDescriptionInput:
+            return 1603
+        case .organizationVerificationNotice:
+            return 1604
+            
+        case .starRatingHeader:
+            return 1700
+        case .starRatingToggle:
+            return 1701
+        case .starRatingPointsInput:
+            return 1702
+        case .starRatingNotice:
+            return 1703
+            
         case .profileDataHeader:
             return 2000
         case .fakeMainUsernameInput:
@@ -161,8 +251,8 @@ private enum FakeProfileEntry: ItemListNodeEntry {
             return 3000
         case .addUsernameAction:
             return 3001
-        case let .nftUsernameItem(_, username, _):
-            return 3100 + Int32(abs(username.hashValue % 800))
+        case let .nftUsernameItem(index, _, _):
+            return 3100 + Int32(index)
         case .nftUsernamesNotice:
             return 3999
             
@@ -170,8 +260,8 @@ private enum FakeProfileEntry: ItemListNodeEntry {
             return 4000
         case .addNftGiftAction:
             return 4001
-        case let .giftItem(_, id, _, _):
-            return 4100 + Int32(abs(id.hashValue % 800))
+        case let .giftItem(index, _, _, _):
+            return 4100 + Int32(index)
         case .giftsNotice:
             return 4999
         }
@@ -188,6 +278,39 @@ private enum FakeProfileEntry: ItemListNodeEntry {
         case let (.tonBalanceInput(t1, v1), .tonBalanceInput(t2, v2)):
             return t1 == t2 && v1 == v2
         case let (.premiumNotice(t1), .premiumNotice(t2)):
+            return t1 == t2
+            
+        case let (.publicBalanceHeader(t1), .publicBalanceHeader(t2)):
+            return t1 == t2
+        case let (.publicBalanceToggle(v1), .publicBalanceToggle(v2)):
+            return v1 == v2
+        case let (.publicBalanceCurrencyInput(t1, v1), .publicBalanceCurrencyInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.publicBalanceAmountInput(t1, v1), .publicBalanceAmountInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.publicWalletAddressInput(t1, v1), .publicWalletAddressInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.publicBalanceNotice(t1), .publicBalanceNotice(t2)):
+            return t1 == t2
+            
+        case let (.organizationVerificationHeader(t1), .organizationVerificationHeader(t2)):
+            return t1 == t2
+        case let (.organizationVerificationToggle(v1), .organizationVerificationToggle(v2)):
+            return v1 == v2
+        case let (.organizationNameInput(t1, v1), .organizationNameInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.organizationDescriptionInput(t1, v1), .organizationDescriptionInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.organizationVerificationNotice(t1), .organizationVerificationNotice(t2)):
+            return t1 == t2
+            
+        case let (.starRatingHeader(t1), .starRatingHeader(t2)):
+            return t1 == t2
+        case let (.starRatingToggle(v1), .starRatingToggle(v2)):
+            return v1 == v2
+        case let (.starRatingPointsInput(t1, v1), .starRatingPointsInput(t2, v2)):
+            return t1 == t2 && v1 == v2
+        case let (.starRatingNotice(t1), .starRatingNotice(t2)):
             return t1 == t2
             
         case let (.profileDataHeader(t1), .profileDataHeader(t2)):
@@ -279,7 +402,140 @@ private enum FakeProfileEntry: ItemListNodeEntry {
         case let .premiumNotice(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, style: .blocks)
             
-        // 2. Секция: Данные профиля
+        // 2. Секция: Публичный баланс TON / GRAM и 3D-карта
+        case let .publicBalanceHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .publicBalanceToggle(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                title: "Публичный баланс в профиле",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { val in
+                    args.updatePublicBalanceEnabled(val)
+                }
+            )
+        case let .publicBalanceCurrencyInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "TON или GRAM",
+                type: .regular(capitalization: true, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { text in
+                    let clean = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+                    args.updatePublicBalanceCurrency(clean.isEmpty ? "TON" : clean)
+                },
+                action: {}
+            )
+        case let .publicBalanceAmountInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "Например, 1000",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { text in
+                    let clean = text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+                    args.updatePublicBalanceAmount(clean.isEmpty ? nil : Double(clean))
+                },
+                action: {}
+            )
+        case let .publicWalletAddressInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "UQDx...",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { text in
+                    args.updatePublicWalletAddress(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                action: {}
+            )
+        case let .publicBalanceNotice(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, style: .blocks)
+            
+        // 3. Секция: Верификация от организации
+        case let .organizationVerificationHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .organizationVerificationToggle(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                title: "Верификация от организации",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { val in
+                    args.updateOrganizationVerificationEnabled(val)
+                }
+            )
+        case let .organizationNameInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "Telegram",
+                type: .regular(capitalization: true, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { text in
+                    let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    args.updateOrganizationName(clean.isEmpty ? "Telegram" : clean)
+                },
+                action: {}
+            )
+        case let .organizationDescriptionInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "Официально подтверждено...",
+                type: .regular(capitalization: false, autocorrection: false),
+                sectionId: self.section,
+                textUpdated: { text in
+                    args.updateOrganizationDescription(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                },
+                action: {}
+            )
+        case let .organizationVerificationNotice(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, style: .blocks)
+            
+        // 4. Секция: Рейтинг по очкам
+        case let .starRatingHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .starRatingToggle(value):
+            return ItemListSwitchItem(
+                presentationData: presentationData,
+                title: "Официальный бейдж рейтинга",
+                value: value,
+                sectionId: self.section,
+                style: .blocks,
+                updated: { val in
+                    args.updateRatingEnabled(val)
+                }
+            )
+        case let .starRatingPointsInput(title, value):
+            return ItemListSingleLineInputItem(
+                presentationData: presentationData,
+                title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor),
+                text: value,
+                placeholder: "5000",
+                type: .number,
+                sectionId: self.section,
+                textUpdated: { text in
+                    let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    args.updateRatingPoints(clean.isEmpty ? nil : Int64(clean))
+                },
+                action: {}
+            )
+        case let .starRatingNotice(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, style: .blocks)
+            
+        // 5. Секция: Данные профиля
         case let .profileDataHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .fakeMainUsernameInput(title, value):
@@ -461,6 +717,42 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
         },
         updatePurchaseDate: { date in
             FakeProfileManager.shared.setFakePurchaseDateString(date, for: currentPeerId)
+        },
+        updatePublicBalanceEnabled: { value in
+            FakeProfileManager.shared.setPublicBalanceEnabled(value, for: currentPeerId)
+            updateState()
+        },
+        updatePublicBalanceAmount: { value in
+            FakeProfileManager.shared.setPublicBalanceAmount(value, for: currentPeerId)
+            updateState()
+        },
+        updatePublicBalanceCurrency: { value in
+            FakeProfileManager.shared.setPublicBalanceCurrency(value, for: currentPeerId)
+            updateState()
+        },
+        updatePublicWalletAddress: { value in
+            FakeProfileManager.shared.setPublicWalletAddress(value, for: currentPeerId)
+            updateState()
+        },
+        updateOrganizationVerificationEnabled: { value in
+            FakeProfileManager.shared.setOrganizationVerificationEnabled(value, for: currentPeerId)
+            updateState()
+        },
+        updateOrganizationName: { value in
+            FakeProfileManager.shared.setOrganizationName(value, for: currentPeerId)
+            updateState()
+        },
+        updateOrganizationDescription: { value in
+            FakeProfileManager.shared.setOrganizationDescription(value, for: currentPeerId)
+            updateState()
+        },
+        updateRatingEnabled: { value in
+            FakeProfileManager.shared.setRatingEnabled(value, for: currentPeerId)
+            updateState()
+        },
+        updateRatingPoints: { value in
+            FakeProfileManager.shared.setRatingPoints(value, for: currentPeerId)
+            updateState()
         },
         addUsername: {
             let alert = UIAlertController(
@@ -666,7 +958,46 @@ public func fakeProfileSettingsController(context: AccountContext) -> ViewContro
         entries.append(.tonBalanceInput("Баланс TON", tonText))
         entries.append(.premiumNotice("Визуально активирует статус Premium и заменяет баланс Звезд и TON во всех экранах приложения."))
         
-        // 2. Секция: Данные профиля (Номер, Юзернейм, Fragment)
+        // 2. Секция: Публичный баланс TON / GRAM и 3D-карта
+        entries.append(.publicBalanceHeader("ПУБЛИЧНЫЙ БАЛАНС TON / GRAM И 3D-КАРТА"))
+        entries.append(.publicBalanceToggle(manager.isPublicBalanceEnabled(for: currentPeerId)))
+        entries.append(.publicBalanceCurrencyInput("Валюта", manager.publicBalanceCurrency(for: currentPeerId)))
+        let pubBalVal = manager.publicBalanceAmount(for: currentPeerId)
+        let pubBalText = pubBalVal.flatMap { val -> String in
+            if val.truncatingRemainder(dividingBy: 1) == 0 {
+                return "\(Int64(val))"
+            } else {
+                return "\(val)"
+            }
+        } ?? ""
+        entries.append(.publicBalanceAmountInput("Сумма баланса", pubBalText))
+        entries.append(.publicWalletAddressInput("Адрес кошелька", manager.publicWalletAddress(for: currentPeerId)))
+        entries.append(.publicBalanceNotice("Отображает блок баланса в профиле. По нажатию открывается интерактивная 3D-карта с наклоном пальцем, переворотом на 180° и сгенерированным QR-кодом адреса."))
+        
+        // 3. Секция: Верификация от организации
+        entries.append(.organizationVerificationHeader("ВЕРИФИКАЦИЯ ОТ ОРГАНИЗАЦИИ"))
+        entries.append(.organizationVerificationToggle(manager.isOrganizationVerificationEnabled(for: currentPeerId)))
+        entries.append(.organizationNameInput("Организация", manager.organizationName(for: currentPeerId)))
+        entries.append(.organizationDescriptionInput("Описание", manager.organizationDescription(for: currentPeerId)))
+        entries.append(.organizationVerificationNotice("Отображает синюю галочку верификации рядом с именем и плашку в профиле. При нажатии открывается стандартное подтверждение от организации."))
+        
+        // 4. Секция: Рейтинг по очкам
+        entries.append(.starRatingHeader("ОФИЦИАЛЬНЫЙ РЕЙТИНГ В ПРОФИЛЕ"))
+        entries.append(.starRatingToggle(manager.isRatingEnabled(for: currentPeerId)))
+        let ratingPts = manager.ratingPoints(for: currentPeerId)
+        let ratingText = ratingPts.flatMap { "\($0)" } ?? ""
+        entries.append(.starRatingPointsInput("Очки рейтинга", ratingText))
+        let levelDesc: String = {
+            if let pts = ratingPts {
+                let lvl = manager.starRatingLevel(for: pts)
+                return "Текущий уровень: \(lvl) (очков: \(pts)). По нажатию в профиле открывается официальная шторка рейтинга с прогрессом до следующего уровня."
+            } else {
+                return "Введите количество очков (например, 5000 для Уровня 2). Клиент автоматически рассчитает уровень, цвет короны и покажет прогресс в официальной шторке."
+            }
+        }()
+        entries.append(.starRatingNotice(levelDesc))
+        
+        // 5. Секция: Данные профиля (Номер, Юзернейм, Fragment)
         entries.append(.profileDataHeader("ДАННЫЕ ПРОФИЛЯ (НОМЕР, ЮЗЕРНЕЙМ, FRAGMENT)"))
         entries.append(.fakeMainUsernameInput("Основной юзернейм", manager.fakeMainUsername(for: currentPeerId) ?? ""))
         entries.append(.fakePhoneToggle(manager.isFakePhoneEnabled(for: currentPeerId)))

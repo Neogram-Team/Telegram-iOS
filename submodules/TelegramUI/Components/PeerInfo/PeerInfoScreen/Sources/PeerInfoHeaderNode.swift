@@ -724,7 +724,11 @@ final class PeerInfoHeaderNode: ASDisplayNode {
             } else {
                 credibilityIcon = .none
             }
-            if peer.isVerified {
+            let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+            let isCurrentAccount = (peer.id == self.context.account.peerId) || self.isSettings || self.isMyProfile
+            if isCurrentAccount && FakeProfileManager.shared.isOrganizationVerificationEnabled(for: currentPeerId) {
+                credibilityIcon = .verified
+            } else if peer.isVerified {
                 credibilityIcon = .verified
             }
             if let verificationIconFileId = peer.verificationIconFileId {
@@ -1043,8 +1047,26 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         guard let strongSelf = self else {
                             return
                         }
+                        let currentPeerId = strongSelf.context.account.peerId.id._internalGetInt64Value()
+                        let isCurrentAccount = (strongSelf.peer?.id == strongSelf.context.account.peerId) || strongSelf.isSettings || strongSelf.isMyProfile
                         if case .premium = strongSelf.currentCredibilityIcon {
                             strongSelf.displayPremiumIntro?(strongSelf.titleCredibilityIconView, currentEmojiStatus, strongSelf.emojiStatusFileAndPackTitle.get(), false)
+                        } else if case .verified = strongSelf.currentCredibilityIcon, isCurrentAccount && FakeProfileManager.shared.isOrganizationVerificationEnabled(for: currentPeerId) {
+                            let orgName = FakeProfileManager.shared.organizationName(for: currentPeerId)
+                            let orgDesc = FakeProfileManager.shared.organizationDescription(for: currentPeerId)
+                            let effectiveTitle = orgName.isEmpty ? "Telegram" : orgName
+                            let effectiveDesc = orgDesc.isEmpty ? "Эта страница официально подтверждена организацией \(effectiveTitle)." : orgDesc
+                            let presentationData = strongSelf.presentationData ?? strongSelf.context.sharedContext.currentPresentationData.with { $0 }
+                            let alert = textAlertController(
+                                context: strongSelf.context,
+                                title: "Подтверждено: \(effectiveTitle)",
+                                text: effectiveDesc,
+                                actions: [
+                                    TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
+                                ],
+                                parseMarkdown: true
+                            )
+                            strongSelf.controller?.present(alert, in: .window(.root))
                         }
                     }
                 )),
@@ -1065,8 +1087,26 @@ final class PeerInfoHeaderNode: ASDisplayNode {
                         guard let strongSelf = self else {
                             return
                         }
+                        let currentPeerId = strongSelf.context.account.peerId.id._internalGetInt64Value()
+                        let isCurrentAccount = (strongSelf.peer?.id == strongSelf.context.account.peerId) || strongSelf.isSettings || strongSelf.isMyProfile
                         if case .premium = strongSelf.currentCredibilityIcon {
                             strongSelf.displayPremiumIntro?(strongSelf.titleExpandedCredibilityIconView, currentEmojiStatus, strongSelf.emojiStatusFileAndPackTitle.get(), true)
+                        } else if case .verified = strongSelf.currentCredibilityIcon, isCurrentAccount && FakeProfileManager.shared.isOrganizationVerificationEnabled(for: currentPeerId) {
+                            let orgName = FakeProfileManager.shared.organizationName(for: currentPeerId)
+                            let orgDesc = FakeProfileManager.shared.organizationDescription(for: currentPeerId)
+                            let effectiveTitle = orgName.isEmpty ? "Telegram" : orgName
+                            let effectiveDesc = orgDesc.isEmpty ? "Эта страница официально подтверждена организацией \(effectiveTitle)." : orgDesc
+                            let presentationData = strongSelf.presentationData ?? strongSelf.context.sharedContext.currentPresentationData.with { $0 }
+                            let alert = textAlertController(
+                                context: strongSelf.context,
+                                title: "Подтверждено: \(effectiveTitle)",
+                                text: effectiveDesc,
+                                actions: [
+                                    TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
+                                ],
+                                parseMarkdown: true
+                            )
+                            strongSelf.controller?.present(alert, in: .window(.root))
                         }
                     }
                 )),
@@ -1487,7 +1527,12 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         
         var subtitleRatingSize: CGSize?
 
-        if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
+        let currentPeerId = self.context.account.peerId.id._internalGetInt64Value()
+        let isCurrentAccount = (self.peer?.id == self.context.account.peerId) || self.isSettings || self.isMyProfile
+        if isCurrentAccount && FakeProfileManager.shared.isRatingEnabled(for: currentPeerId), let points = FakeProfileManager.shared.ratingPoints(for: currentPeerId) {
+            self.currentStarRating = Self.calculateStarRating(for: points)
+            self.currentPendingStarRating = nil
+        } else if let cachedData = cachedData as? CachedUserData, let starRating = cachedData.starRating {
             self.currentStarRating = starRating
             self.currentPendingStarRating = cachedData.pendingStarRating
         } else {
@@ -3044,5 +3089,42 @@ final class PeerInfoHeaderNode: ASDisplayNode {
         
         let maskAnchorPoint = CGPoint(x: 0.5, y: self.isAvatarExpanded ? 0.37 : 0.5)
         transition.updateAnchorPoint(layer: self.avatarListNode.maskNode.layer, anchorPoint: maskAnchorPoint)
+    }
+    
+    private static func calculateStarRating(for points: Int64) -> TelegramStarRating {
+        let thresholds: [Int64] = [
+            0,
+            2_500,
+            10_000,
+            25_000,
+            50_000,
+            100_000,
+            250_000,
+            500_000,
+            1_000_000,
+            2_500_000,
+            5_000_000,
+            10_000_000,
+            25_000_000,
+            50_000_000,
+            100_000_000
+        ]
+        let p = max(0, points)
+        var levelIndex = 0
+        for i in 0 ..< thresholds.count {
+            if p >= thresholds[i] {
+                levelIndex = i
+            } else {
+                break
+            }
+        }
+        let currentBase = thresholds[levelIndex]
+        let nextBase: Int64? = (levelIndex + 1 < thresholds.count) ? thresholds[levelIndex + 1] : currentBase * 2
+        return TelegramStarRating(
+            level: Int32(levelIndex + 1),
+            currentLevelStars: currentBase,
+            stars: p,
+            nextLevelStars: nextBase
+        )
     }
 }

@@ -296,6 +296,51 @@ func infoItems(
             )
         }
         
+        if isMyProfile && FakeProfileManager.shared.isPublicBalanceEnabled(for: currentPeerId) {
+            let currency = FakeProfileManager.shared.publicBalanceCurrency(for: currentPeerId)
+            let amount = FakeProfileManager.shared.publicBalanceAmount(for: currentPeerId) ?? 0.0
+            let walletAddress = FakeProfileManager.shared.publicWalletAddress(for: currentPeerId)
+            let formattedAmount: String = {
+                let formatter = NumberFormatter()
+                formatter.numberStyle = .decimal
+                formatter.groupingSeparator = " "
+                formatter.minimumFractionDigits = 0
+                formatter.maximumFractionDigits = 2
+                let numStr = formatter.string(from: NSNumber(value: amount)) ?? "\(amount)"
+                return "\(numStr) \(currency)"
+            }()
+            let openCardAction: () -> Void = {
+                guard let controller = interaction.getController() else { return }
+                let cardController = Ton3DCardScreen(
+                    context: context,
+                    balanceAmount: amount,
+                    currency: currency,
+                    walletAddress: walletAddress,
+                    cardholderName: user.displayTitle(strings: presentationData.strings, displayOrder: presentationData.nameDisplayOrder)
+                )
+                controller.present(cardController, in: .window(.root))
+            }
+            items[currentPeerInfoSection]!.append(
+                PeerInfoScreenLabeledValueItem(
+                    id: 999901,
+                    label: "Кошелек (\(currency))",
+                    text: formattedAmount,
+                    additionalText: walletAddress.isEmpty ? nil : "\(walletAddress.prefix(6))...\(walletAddress.suffix(4))",
+                    textColor: .accent,
+                    icon: .qrCode,
+                    action: { _, _ in
+                        openCardAction()
+                    },
+                    iconAction: {
+                        openCardAction()
+                    },
+                    requestLayout: { animated in
+                        interaction.requestLayout(animated)
+                    }
+                )
+            )
+        }
+        
         if let cachedData = data.cachedData as? CachedUserData {
             if let birthday = cachedData.birthday {
                 let isBirthdayToday = hasBirthdayToday(birthday: birthday)
@@ -666,7 +711,12 @@ func infoItems(
                     }))
                 }
                                 
-                if let verification = (data.cachedData as? CachedUserData)?.verification {
+                if isMyProfile && FakeProfileManager.shared.isOrganizationVerificationEnabled(for: currentPeerId) {
+                    let orgName = FakeProfileManager.shared.organizationName(for: currentPeerId)
+                    let orgDesc = FakeProfileManager.shared.organizationDescription(for: currentPeerId)
+                    let effectiveDesc = orgDesc.isEmpty ? "Эта страница официально подтверждена организацией \(orgName)." : orgDesc
+                    items[currentPeerInfoSection]!.append(PeerInfoScreenCommentItem(id: 999902, text: effectiveDesc, linkAction: { _ in }))
+                } else if let verification = (data.cachedData as? CachedUserData)?.verification {
                     let attributedPrefix = NSMutableAttributedString(string: "  ")
                     attributedPrefix.addAttribute(ChatTextInputAttributes.customEmoji, value: ChatTextInputTextCustomEmojiAttribute(interactivelySelectedFromPackId: nil, fileId: verification.iconFileId, file: nil), range: NSMakeRange(0, 1))
                     

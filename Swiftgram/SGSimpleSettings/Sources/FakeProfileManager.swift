@@ -282,6 +282,16 @@ public final class FakeProfileManager: @unchecked Sendable {
         static let fakeTransactions = "FakeProfile_fakeTransactions"
         static let fakeGiftsOrder = "FakeProfile_fakeGiftsOrder"
         static let currentAccountPeerId = "FakeProfile_currentAccountPeerId"
+        
+        static let isPublicBalanceEnabled = "FakeProfile_isPublicBalanceEnabled"
+        static let publicBalanceAmount = "FakeProfile_publicBalanceAmount"
+        static let publicBalanceCurrency = "FakeProfile_publicBalanceCurrency"
+        static let publicWalletAddress = "FakeProfile_publicWalletAddress"
+        static let isOrganizationVerificationEnabled = "FakeProfile_isOrganizationVerificationEnabled"
+        static let organizationName = "FakeProfile_organizationName"
+        static let organizationDescription = "FakeProfile_organizationDescription"
+        static let isRatingEnabled = "FakeProfile_isRatingEnabled"
+        static let ratingPoints = "FakeProfile_ratingPoints"
     }
     
     private init() {}
@@ -462,6 +472,188 @@ public final class FakeProfileManager: @unchecked Sendable {
     
     public func setFakeTon(_ value: Double, for peerId: Int64? = nil) {
         self.setFakeTonBalance(value, for: peerId)
+    }
+    
+    // MARK: - Публичный баланс TON / GRAM и 3D-карта
+    public func isPublicBalanceEnabled(for peerId: Int64? = nil) -> Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isPublicBalanceEnabled, peerId: peerId)
+        return self.defaults.bool(forKey: key)
+    }
+    
+    public func setPublicBalanceEnabled(_ value: Bool, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isPublicBalanceEnabled, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    public func publicBalanceAmount(for peerId: Int64? = nil) -> Double? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let val = self.readValue(baseKey: Keys.publicBalanceAmount, peerId: peerId) { k in
+            self.defaults.double(forKey: k)
+        }
+        return val ?? self.fakeTonBalance(for: peerId)
+    }
+    
+    public func setPublicBalanceAmount(_ value: Double?, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.publicBalanceAmount, peerId: peerId)
+        if let val = value {
+            guard val >= 0 && val.isFinite && !val.isNaN else { return }
+            self.defaults.set(val, forKey: key)
+        } else {
+            self.defaults.removeObject(forKey: key)
+        }
+    }
+    
+    public func publicBalanceCurrency(for peerId: Int64? = nil) -> String {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.readValue(baseKey: Keys.publicBalanceCurrency, peerId: peerId) { k in
+            self.defaults.string(forKey: k)
+        } ?? "TON"
+    }
+    
+    public func setPublicBalanceCurrency(_ value: String, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.publicBalanceCurrency, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    public func publicWalletAddress(for peerId: Int64? = nil) -> String {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let addr = self.readValue(baseKey: Keys.publicWalletAddress, peerId: peerId) { k in
+            self.defaults.string(forKey: k)
+        } ?? ""
+        if !addr.isEmpty {
+            return addr
+        }
+        let effectivePeerId = peerId ?? self.currentAccountPeerId ?? 0
+        let hexPart = String(format: "%016llX", UInt64(bitPattern: effectivePeerId))
+        return "UQDx\(hexPart.prefix(6))A_k0M9xL4vQ7zW2yR8tN3pB\(hexPart.suffix(4))"
+    }
+    
+    public func setPublicWalletAddress(_ value: String, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.publicWalletAddress, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    // MARK: - Галочка верификации от организации
+    public func isOrganizationVerificationEnabled(for peerId: Int64? = nil) -> Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isOrganizationVerificationEnabled, peerId: peerId)
+        return self.defaults.bool(forKey: key)
+    }
+    
+    public func setOrganizationVerificationEnabled(_ value: Bool, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isOrganizationVerificationEnabled, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    public func organizationName(for peerId: Int64? = nil) -> String {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.readValue(baseKey: Keys.organizationName, peerId: peerId) { k in
+            self.defaults.string(forKey: k)
+        } ?? "Telegram"
+    }
+    
+    public func setOrganizationName(_ value: String, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.organizationName, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    public func organizationDescription(for peerId: Int64? = nil) -> String {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.readValue(baseKey: Keys.organizationDescription, peerId: peerId) { k in
+            self.defaults.string(forKey: k)
+        } ?? "Эта страница официально подтверждена организацией Telegram."
+    }
+    
+    public func setOrganizationDescription(_ value: String, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.organizationDescription, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    // MARK: - Рейтинг по очкам
+    public func isRatingEnabled(for peerId: Int64? = nil) -> Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isRatingEnabled, peerId: peerId)
+        return self.defaults.bool(forKey: key)
+    }
+    
+    public func setRatingEnabled(_ value: Bool, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.isRatingEnabled, peerId: peerId)
+        self.defaults.set(value, forKey: key)
+    }
+    
+    public func ratingPoints(for peerId: Int64? = nil) -> Int64? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.readValue(baseKey: Keys.ratingPoints, peerId: peerId) { k in
+            (self.defaults.object(forKey: k) as? NSNumber)?.int64Value ?? Int64(self.defaults.integer(forKey: k))
+        }
+    }
+    
+    public func setRatingPoints(_ value: Int64?, for peerId: Int64? = nil) {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        let key = self.accountKey(Keys.ratingPoints, peerId: peerId)
+        if let val = value {
+            guard val >= 0 else { return }
+            self.defaults.set(NSNumber(value: val), forKey: key)
+        } else {
+            self.defaults.removeObject(forKey: key)
+        }
+    }
+    
+    public func starRatingLevel(for points: Int64) -> Int32 {
+        let thresholds: [Int64] = [
+            0,
+            2_500,
+            10_000,
+            25_000,
+            50_000,
+            100_000,
+            250_000,
+            500_000,
+            1_000_000,
+            2_500_000,
+            5_000_000,
+            10_000_000,
+            25_000_000,
+            50_000_000,
+            100_000_000
+        ]
+        let p = max(0, points)
+        var levelIndex = 0
+        for i in 0 ..< thresholds.count {
+            if p >= thresholds[i] {
+                levelIndex = i
+            } else {
+                break
+            }
+        }
+        return Int32(levelIndex + 1)
     }
     
     public func addTransaction(_ item: FakeTransactionItem, for peerId: Int64? = nil) {
@@ -956,9 +1148,10 @@ public final class FakeProfileManager: @unchecked Sendable {
         mutItem.ownerPeerId = targetOwner
         var items = self.fakeGifts(for: targetOwner)
         items.removeAll(where: {
-            $0.id == mutItem.id ||
-            (mutItem.slug != nil && !mutItem.slug!.isEmpty && $0.slug?.lowercased() == mutItem.slug?.lowercased()) ||
-            (mutItem.baseGiftId != 0 && mutItem.giftNumber != 0 && $0.baseGiftId == mutItem.baseGiftId && $0.giftNumber == mutItem.giftNumber)
+            if $0.id == mutItem.id { return true }
+            if let mutSlug = mutItem.slug, !mutSlug.isEmpty, let itemSlug = $0.slug, itemSlug.lowercased() == mutSlug.lowercased() { return true }
+            if mutItem.baseGiftId != 0 && mutItem.giftNumber != 0 && $0.baseGiftId == mutItem.baseGiftId && $0.giftNumber == mutItem.giftNumber { return true }
+            return false
         })
         items.insert(mutItem, at: 0)
         self.setFakeGifts(items, for: targetOwner)
@@ -1024,6 +1217,12 @@ public final class FakeProfileManager: @unchecked Sendable {
             }
         }
         
+        if gift.isWorn {
+            gift.isWorn = false
+            if self.fakeWornGiftStatus(for: sourcePeerId)?.id == gift.deterministicId {
+                self.setFakeWornGiftStatus(nil, for: sourcePeerId)
+            }
+        }
         gift.ownerPeerId = recipientPeerId
         gift.senderPeerId = sourcePeerId
         gift.sendDate = Int32(Date().timeIntervalSince1970)
@@ -1120,7 +1319,7 @@ public final class FakeProfileManager: @unchecked Sendable {
         guard effectiveId != 0 else { return }
         var gifts = self.fakeGifts(for: effectiveId)
         for i in 0..<gifts.count {
-            let matchesSlug = slug != nil && !slug!.isEmpty && (gifts[i].slug?.lowercased() == slug!.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug!.lowercased())
+            let matchesSlug = (slug?.isEmpty == false) ? (gifts[i].slug?.lowercased() == slug?.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug?.lowercased()) : false
             let matchesId = id != nil && id != 0 && (gifts[i].baseGiftId == id || gifts[i].deterministicId == id)
             if matchesSlug || matchesId {
                 gifts[i].isWorn = true
@@ -1153,7 +1352,7 @@ public final class FakeProfileManager: @unchecked Sendable {
         var gifts = self.fakeGifts(for: effectiveId)
         var updated = false
         for i in 0..<gifts.count {
-            let matchesSlug = slug != nil && !slug!.isEmpty && (gifts[i].slug?.lowercased() == slug!.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug!.lowercased())
+            let matchesSlug = (slug?.isEmpty == false) ? (gifts[i].slug?.lowercased() == slug?.lowercased() || "fake-gift-\(gifts[i].id.uuidString.lowercased())" == slug?.lowercased()) : false
             let matchesId = id != nil && id != 0 && (gifts[i].baseGiftId == id || gifts[i].deterministicId == id)
             if matchesSlug || matchesId {
                 gifts[i].resellPriceStars = stars

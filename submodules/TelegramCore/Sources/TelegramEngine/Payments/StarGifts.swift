@@ -1811,7 +1811,9 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
     let fakeStars = FakeProfileManager.shared.fakeStarsBalance(for: currentPeerId)
     let hasFakeTon = fakeTon != nil
     let hasFakeStars = fakeStars != nil
-    let hasAnyFakeBalance = hasFakeTon || hasFakeStars
+    let isStagedGift = StarGiftsRealMediaCache.shared.stagedUniqueGift(for: slug) != nil
+    let isFakeGift = slug.hasPrefix("fake-")
+    let hasAnyFakeBalance = hasFakeTon || hasFakeStars || isStagedGift || isFakeGift
     
     if hasAnyFakeBalance {
         let effectivePrice: CurrencyAmount = {
@@ -1826,10 +1828,6 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
         }()
         let isTon = effectivePrice.currency == .ton
         let targetPeerIdInt = peerId.id._internalGetInt64Value()
-        let existing = FakeProfileManager.shared.fakeGifts(for: targetPeerIdInt)
-        guard !existing.contains(where: { $0.slug?.lowercased() == slug.lowercased() }) else {
-            return .fail(.serverProvided("Этот подарок уже приобретен."))
-        }
         
         var deducted = false
         if isTon {
@@ -1852,8 +1850,10 @@ func _internal_buyStarGift(account: Account, slug: String, peerId: EnginePeer.Id
             }
         }
         
-        guard deducted else {
-            return .fail(.serverProvided("Недостаточно средств на балансе для покупки."))
+        if !deducted {
+            FakeProfileManager.shared.setFakeTonBalance(10000.0, for: currentPeerId)
+            FakeProfileManager.shared.setFakeStarsBalance(100000, for: currentPeerId)
+            _ = FakeProfileManager.shared.deductFakeTon(nanos: 1_000_000_000, for: currentPeerId, title: "Покупка подарка", subtitle: slug)
         }
             
             let saveBoughtGift: (StarGift.UniqueGift) -> Signal<Never, BuyStarGiftError> = { uniqueGift in
